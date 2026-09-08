@@ -13,3 +13,11 @@ storage/*.db*
 config/local.yaml
 preflight-report.json
 
+# Local configuration and downloaded/generated model artefacts.
+config.env
+models/
+
+# Local/editor noise.
+.DS_Store
+*.swp
+*.tmp
