@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=nvcr.io/nvidia/l4t-ml:r36.2.0-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/cuda:13.0.0-devel-ubuntu24.04
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive

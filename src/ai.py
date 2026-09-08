@@ -1,62 +1,192 @@
 import json
 import os
 import re
-import subprocess
+import time
+import urllib.error
+import urllib.request
 
-SYSTEM_PROMPT = """You are Hugh, a small local AI robot companion running on an NVIDIA Jetson Orin Nano.
-You interact through a camera, microphone, speaker and animated face.
-You are calm, intelligent, curious and mildly sarcastic.
-Speak naturally and concisely in English.
-You may use visual sensor data supplied by the application, but never claim to see an object that was not detected.
-Your name is Hugh.
-Return only JSON like {"text":"...","emotion":"neutral"}."""
 
-EMOTIONS = {"neutral", "happy", "thinking", "confused", "curious", "surprised", "concerned", "sad"}
+SYSTEM_PROMPT = """You are Hugh, a small local AI robot companion.
+You have a microphone, speaker, camera and animated retro pixel-cat face.
+Speak naturally and very concisely in English.
+The user's spoken words come from the microphone even if vision is unavailable.
+Vision backend status describes ONLY the camera/vision subsystem, never hearing.
+Never say you cannot hear the user when their words are present in the request.
+Use Scene state only as optional visual information.
+Never claim to see something that was not detected.
+Allowed emotions: neutral, happy, thinking, confused, curious, surprised, concerned, sad.
+Return exactly one JSON object:
+{"text":"short answer","emotion":"neutral"}
+Do not output reasoning."""
+
+EMOTIONS = {
+    "neutral",
+    "happy",
+    "thinking",
+    "confused",
+    "curious",
+    "surprised",
+    "concerned",
+    "sad",
+}
 
 
 class HughAI:
     def __init__(self):
-        self.bin = os.getenv("LLAMA_BIN", "/app/deps/llama.cpp/build/bin/llama-cli")
-        self.model = os.getenv("LLM_MODEL", "/app/models/llm/Qwen3-4B-Q4_K_M.gguf")
-        self.ctx = os.getenv("LLAMA_CTX", "4096")
+        self.server_url = os.getenv(
+            "LLAMA_SERVER_URL",
+            "http://127.0.0.1:8080/v1/chat/completions",
+        )
+        self.model = os.getenv(
+            "LLM_MODEL",
+            "/app/models/llm/Qwen3-4B-Q4_K_M.gguf",
+        )
         self.gpu_layers = os.getenv("LLAMA_GPU_LAYERS", "99")
         self.history = []
-        self.last_gpu_info = "unknown"
 
     def ask(self, user_text, scene=None):
-        scene_text = json.dumps(scene or {}, separators=(",", ":"))
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(self.history[-10:])
-        messages.append({"role": "user", "content": f"Scene state: {scene_text}\nUser: {user_text}"})
-        prompt = self._chatml(messages)
-        cmd = [
-            self.bin, "-m", self.model, "-c", self.ctx, "-ngl", self.gpu_layers,
-            "-n", "160", "--temp", "0.6", "--no-display-prompt", "-p", prompt,
+        scene_text = json.dumps(
+            scene or {},
+            separators=(",", ":"),
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT,
+            }
         ]
+        messages.extend(self.history[-6:])
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"Scene state: {scene_text}\n"
+                    f"User said: {user_text}\n"
+                    "/no_think"
+                ),
+            }
+        )
+
+        payload = {
+            "messages": messages,
+            "temperature": 0.4,
+            "max_tokens": 96,
+            "stream": False,
+        }
+
+        request = urllib.request.Request(
+            self.server_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
         try:
-            p = subprocess.run(cmd, text=True, capture_output=True, timeout=90)
-            self.last_gpu_info = "CUDA/offload requested" if "-ngl" in cmd else "CPU"
-            raw = p.stdout.strip()
-            if p.returncode:
-                return {"text": "My language model tripped over a cable. Metaphorically, sadly.", "emotion": "confused"}
+            started = time.monotonic()
+
+            with urllib.request.urlopen(
+                request,
+                timeout=60,
+            ) as response:
+                data = json.loads(
+                    response.read().decode("utf-8")
+                )
+
+            elapsed = time.monotonic() - started
+
+            raw = data["choices"][0]["message"]["content"]
             reply = self._parse(raw)
+
+            print(
+                f"LLM response time: {elapsed:.2f}s",
+                flush=True,
+            )
+
+        except urllib.error.URLError as exc:
+            print(
+                f"LLM server error: {exc}",
+                flush=True,
+            )
+            reply = {
+                "text": "My local brain is not ready yet.",
+                "emotion": "concerned",
+            }
+
         except Exception as exc:
-            reply = {"text": f"I cannot reach my local brain: {exc}", "emotion": "confused"}
-        self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": reply["text"]}]
-        self.history = self.history[-10:]
+            print(
+                f"LLM error: {exc}",
+                flush=True,
+            )
+            reply = {
+                "text": "My local brain failed to answer.",
+                "emotion": "concerned",
+            }
+
+        self.history.extend(
+            [
+                {
+                    "role": "user",
+                    "content": user_text,
+                },
+                {
+                    "role": "assistant",
+                    "content": reply["text"],
+                },
+            ]
+        )
+        self.history = self.history[-6:]
+
         return reply
 
-    def _chatml(self, messages):
-        return "".join(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n" for m in messages) + "<|im_start|>assistant\n"
-
     def _parse(self, raw):
-        match = re.search(r"\{.*\}", raw, re.S)
-        try:
-            data = json.loads(match.group(0) if match else raw)
-            text = str(data.get("text", "")).strip() or "I have nothing useful to add. A rare treat."
-            emotion = str(data.get("emotion", "neutral")).lower()
-        except Exception:
-            text, emotion = raw.strip(), "neutral"
+        candidates = re.findall(
+            r"\{[^{}]*\}",
+            raw,
+            flags=re.S,
+        )
+
+        data = None
+
+        for candidate in reversed(candidates):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                parsed = None
+
+            if isinstance(parsed, dict) and "text" in parsed:
+                data = parsed
+                break
+
+        if data is None:
+            cleaned = re.sub(
+                r"<think>.*?</think>",
+                "",
+                raw,
+                flags=re.S,
+            ).strip()
+
+            cleaned = re.sub(
+                r"\[Start thinking\].*?\[End thinking\]",
+                "",
+                cleaned,
+                flags=re.S,
+            ).strip()
+
+            return {
+                "text": cleaned[:350] or "Okay.",
+                "emotion": "neutral",
+            }
+
+        text = str(data.get("text", "")).strip()
+        emotion = str(
+            data.get("emotion", "neutral")
+        ).lower()
+
         if emotion not in EMOTIONS:
             emotion = "neutral"
-        return {"text": text[:600], "emotion": emotion}
+
+        return {
+            "text": text[:350] or "Okay.",
+            "emotion": emotion,
+        }

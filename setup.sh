@@ -50,7 +50,7 @@ install_host_packages(){
   sudo apt-get install -y --no-install-recommends \
     ca-certificates curl git build-essential cmake pkg-config \
     alsa-utils pulseaudio-utils v4l-utils x11-xserver-utils \
-    docker.io docker-compose-plugin python3
+    docker-compose-plugin python3
   sudo apt-get install -y --no-install-recommends nvidia-container-toolkit >/dev/null 2>&1 \
     || sudo apt-get install -y --no-install-recommends nvidia-container-runtime >/dev/null 2>&1 \
     || warn "NVIDIA container runtime package not installed from current apt sources"
@@ -97,8 +97,7 @@ download_models(){
 
 build_container(){
   log "Container"
-  local base="nvcr.io/nvidia/l4t-ml:r36.2.0-py3"
-  [[ "${L4T:-}" == 35.* ]] && base="nvcr.io/nvidia/l4t-ml:r35.2.1-py3"
+  local base="nvcr.io/nvidia/cuda:13.0.0-devel-ubuntu24.04"
   $DOCKER build --build-arg BASE_IMAGE="$base" -t jetson-friend:local "$ROOT"
 }
 
