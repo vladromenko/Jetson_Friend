@@ -35,9 +35,9 @@ class Face:
 
     def set_gaze(self, x, y):
         with self.lock:
-            if abs(x) < 0.08:
+            if abs(x) < 0.03:
                 x = 0.0
-            if abs(y) < 0.08:
+            if abs(y) < 0.03:
                 y = 0.0
             self.gaze = [
                 max(-1.0, min(1.0, float(x))),
@@ -314,8 +314,8 @@ class Face:
         )
         pygame.draw.rect(surface, accent, rect)
 
-        pupil_x = int(round(gaze[0] * 3))
-        pupil_y = int(round(gaze[1] * 2))
+        pupil_x = int(round(gaze[0] * 6))
+        pupil_y = int(round(gaze[1] * 4))
         pygame.draw.rect(
             surface,
             palette["eye_dark"],

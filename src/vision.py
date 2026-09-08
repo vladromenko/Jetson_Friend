@@ -561,12 +561,12 @@ if engine is None:
             camera_x = (selected["center"][0] - 0.5) * 2.0
             camera_y = (selected["center"][1] - 0.5) * 2.0
 
-            gx = camera_x
+            gx = -camera_x
             gy = camera_y
 
             self.gaze = (
-                self.gaze[0] * 0.72 + gx * 0.28,
-                self.gaze[1] * 0.72 + gy * 0.28,
+                self.gaze[0] * 0.50 + gx * 0.50,
+                self.gaze[1] * 0.50 + gy * 0.50,
             )
         else:
             self.gaze = (
