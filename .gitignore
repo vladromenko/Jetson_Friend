@@ -1,23 +1,23 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.venv/
-venv/
-dist/
-build/
-logs/*.log*
-storage/*.db*
-config/local.yaml
-preflight-report.json
 
-# Local configuration and downloaded/generated model artefacts.
-config.env
+.venv/
+
+__pycache__/
+
+*.pyc
+
+*.log
+
 models/
 
-# Local/editor noise.
-.DS_Store
-*.swp
-*.tmp
+*.gguf
+
+*.engine
+
+core
+
+core.*
+
+deps/llama.cpp/
+
+deps/whisper.cpp/
+

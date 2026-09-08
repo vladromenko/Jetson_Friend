@@ -2,6 +2,7 @@ import math
 import os
 import subprocess
 import sys
+import threading
 import time
 
 import cv2
@@ -369,6 +370,8 @@ class Vision:
         self.gaze = (0.0, 0.0)
         self.running = False
         self.backend = "not started"
+        self.frame_lock = threading.Lock()
+        self.latest_frame = None
 
     def _labels(self, path):
         try:
@@ -502,6 +505,9 @@ if engine is None:
                         cap = None
                         time.sleep(0.2)
                     else:
+                        with self.frame_lock:
+                            self.latest_frame = frame.copy()
+
                         now = time.time()
 
                         if (
@@ -555,6 +561,28 @@ if engine is None:
                     face_detector.close()
                 except Exception as exc:
                     print(f"YuNet shutdown warning: {exc}", flush=True)
+
+    def snapshot_jpeg(self, quality=85):
+        with self.frame_lock:
+            frame = (
+                self.latest_frame.copy()
+                if self.latest_frame is not None
+                else None
+            )
+
+        if frame is None:
+            return None
+
+        ok, encoded = cv2.imencode(
+            ".jpg",
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)],
+        )
+
+        if not ok:
+            return None
+
+        return encoded.tobytes()
 
     def _update_gaze(self, selected, face):
         if selected is not None:

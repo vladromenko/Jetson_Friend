@@ -28,12 +28,13 @@ def env_status(ai, speech, vision):
             else "not detected"
         ),
         "LLM model": ai.model,
+        "VLM projector": ai.mmproj or "not configured",
         "LLM GPU offload": (
             f"{ai.gpu_layers} layers requested"
         ),
         "Whisper model": speech.whisper_model,
         "Whisper runtime": "CPU (--no-gpu)",
-        "LLM backend": "persistent llama-server",
+        "LLM backend": "persistent multimodal llama-server",
         "TTS voice": speech.voice,
         "camera": f"index {vision.camera_index}",
         "object detector": vision.object_model,
@@ -59,9 +60,29 @@ def handle_text(
         )
 
     face.set_state("thinking")
+
+    wants_vision = ai.needs_vision(text)
+    image_jpeg = None
+
+    if wants_vision:
+        image_jpeg = vision.snapshot_jpeg()
+
+        if debug:
+            if image_jpeg:
+                print(
+                    f"visual request: frame attached ({len(image_jpeg)} bytes)",
+                    flush=True,
+                )
+            else:
+                print(
+                    "visual request: no camera frame available",
+                    flush=True,
+                )
+
     reply = ai.ask(
         text,
         vision.scene,
+        image_jpeg=image_jpeg,
     )
 
     if debug:
@@ -75,7 +96,7 @@ def handle_text(
         )
         print(
             "vision backend: "
-            f"{vision.scene.get('backend', 'unknown')}"
+            f"{vision.scene.get('vision_backend', 'unknown')}"
         )
         print(
             f"AI response: {reply['text']}"
@@ -85,7 +106,6 @@ def handle_text(
             flush=True,
         )
 
-    # Show the AI-selected emotion briefly before speech.
     face.set_state(reply["emotion"])
     time.sleep(0.35)
 

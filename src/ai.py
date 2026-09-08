@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import re
@@ -16,8 +17,9 @@ Avoid unnecessary repetition, filler, and overly long responses.
 The user's spoken words come from the microphone even if vision is unavailable.
 Vision backend status describes ONLY the camera/vision subsystem, never hearing.
 Never say you cannot hear the user when their words are present in the request.
-Use Scene state only as optional visual information.
-Never claim to see something that was not detected.
+Use Scene state as lightweight sensor information.
+When an image is attached, inspect the image directly and use it as the main visual source.
+Never claim to see visual details that are not supported by the image or Scene state.
 Allowed emotions: neutral, happy, thinking, confused, curious, surprised, concerned, sad.
 Return exactly one JSON object:
 {"text":"your natural answer","emotion":"neutral"}
@@ -34,21 +36,48 @@ EMOTIONS = {
     "sad",
 }
 
+VISUAL_PATTERNS = (
+    r"\bwhat do you see\b",
+    r"\bwhat can you see\b",
+    r"\bcan you see\b",
+    r"\blook at\b",
+    r"\blook around\b",
+    r"\bdescribe (?:me|this|what|the scene|the room|my)\b",
+    r"\bwhat am i holding\b",
+    r"\bwhat(?:'s| is) in (?:front of|behind|beside|next to) me\b",
+    r"\bwhat(?:'s| is) on the (?:table|desk|floor|wall)\b",
+    r"\bwhat am i wearing\b",
+    r"\bhow do i look\b",
+    r"\bwho is (?:here|there|in front of you)\b",
+    r"\bwhat object\b",
+    r"\bwhat color\b",
+)
+
 
 class HughAI:
     def __init__(self):
         self.server_url = os.getenv(
             "LLAMA_SERVER_URL",
-            "http://127.0.0.1:8080/v1/chat/completions",
+            "http://127.0.0.1:8081/v1/chat/completions",
         )
         self.model = os.getenv(
             "LLM_MODEL",
-            "/app/models/llm/Qwen3-4B-Q4_K_M.gguf",
+            "/app/models/vlm/qwen2.5-vl-3b/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
         )
+        self.mmproj = os.getenv("VLM_MMPROJ", "")
         self.gpu_layers = os.getenv("LLAMA_GPU_LAYERS", "99")
         self.history = []
 
-    def ask(self, user_text, scene=None):
+    def needs_vision(self, user_text):
+        text = user_text.lower().strip()
+
+        for pattern in VISUAL_PATTERNS:
+            if re.search(pattern, text):
+                return True
+
+        return False
+
+    def ask(self, user_text, scene=None, image_jpeg=None):
         scene_text = json.dumps(
             scene or {},
             separators=(",", ":"),
@@ -61,14 +90,33 @@ class HughAI:
             }
         ]
         messages.extend(self.history[-6:])
+
+        prompt_text = (
+            f"Scene state: {scene_text}\n"
+            f"User said: {user_text}"
+        )
+
+        if image_jpeg:
+            image_b64 = base64.b64encode(image_jpeg).decode("ascii")
+            user_content = [
+                {
+                    "type": "text",
+                    "text": prompt_text,
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/jpeg;base64," + image_b64
+                    },
+                },
+            ]
+        else:
+            user_content = prompt_text
+
         messages.append(
             {
                 "role": "user",
-                "content": (
-                    f"Scene state: {scene_text}\n"
-                    f"User said: {user_text}\n"
-                    "/no_think"
-                ),
+                "content": user_content,
             }
         )
 
@@ -91,7 +139,7 @@ class HughAI:
 
             with urllib.request.urlopen(
                 request,
-                timeout=60,
+                timeout=90,
             ) as response:
                 data = json.loads(
                     response.read().decode("utf-8")
@@ -102,8 +150,9 @@ class HughAI:
             raw = data["choices"][0]["message"]["content"]
             reply = self._parse(raw)
 
+            mode = "vision" if image_jpeg else "text"
             print(
-                f"LLM response time: {elapsed:.2f}s",
+                f"LLM response time: {elapsed:.2f}s ({mode})",
                 flush=True,
             )
 
@@ -178,7 +227,7 @@ class HughAI:
             ).strip()
 
             return {
-                "text": cleaned[:350] or "Okay.",
+                "text": cleaned[:500] or "Okay.",
                 "emotion": "neutral",
             }
 
@@ -191,6 +240,6 @@ class HughAI:
             emotion = "neutral"
 
         return {
-            "text": text[:350] or "Okay.",
+            "text": text[:500] or "Okay.",
             "emotion": emotion,
         }
