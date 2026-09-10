@@ -1,161 +1,200 @@
 import argparse
 import os
 import queue
+import re
 import signal
 import threading
 import time
 
 from ai import HughAI
+from behavior import Behavior
 from face import Face
+from memory import Memory
 from speech import Speech
 from vision import Vision
 
 
-def env_status(ai, speech, vision):
-    return {
-        "JetPack": (
-            os.popen(
-                "dpkg-query -W -f='${Version}' "
-                "nvidia-jetpack 2>/dev/null"
-            ).read().strip()
-            or "unknown"
-        ),
-        "CUDA device": (
-            "present"
-            if os.path.exists(
-                "/dev/nvhost-ctrl-gpu"
-            )
-            else "not detected"
-        ),
-        "LLM model": ai.model,
-        "VLM projector": ai.mmproj or "not configured",
-        "LLM GPU offload": (
-            f"{ai.gpu_layers} layers requested"
-        ),
-        "Whisper model": speech.whisper_model,
-        "Whisper runtime": "CPU (--no-gpu)",
-        "LLM backend": "persistent multimodal llama-server",
-        "TTS voice": speech.voice,
-        "camera": f"index {vision.camera_index}",
-        "object detector": vision.object_model,
-        "face detector": vision.face_model,
-    }
-
-
-def handle_text(
-    text,
-    ai,
+def speak_reply(
     speech,
     face,
-    vision,
-    debug,
+    text,
+    emotion="neutral",
 ):
-    if not text.strip():
-        return
-
-    if debug:
-        print(
-            f"recognized text: {text}",
-            flush=True,
-        )
-
-    face.set_state("thinking")
-
-    wants_vision = ai.needs_vision(text)
-    image_jpeg = None
-
-    if wants_vision:
-        image_jpeg = vision.snapshot_jpeg()
-
-        if debug:
-            if image_jpeg:
-                print(
-                    f"visual request: frame attached ({len(image_jpeg)} bytes)",
-                    flush=True,
-                )
-            else:
-                print(
-                    "visual request: no camera frame available",
-                    flush=True,
-                )
-
-    reply = ai.ask(
-        text,
-        vision.scene,
-        image_jpeg=image_jpeg,
+    face.set_state(
+        emotion
     )
 
-    if debug:
-        print(
-            "detected faces: "
-            f"{vision.scene.get('faces', 0)}"
-        )
-        print(
-            "detected objects: "
-            f"{', '.join(vision.scene.get('objects', [])) or 'none'}"
-        )
-        print(
-            "vision backend: "
-            f"{vision.scene.get('vision_backend', 'unknown')}"
-        )
-        print(
-            f"AI response: {reply['text']}"
-        )
-        print(
-            f"current emotion: {reply['emotion']}",
-            flush=True,
-        )
-
-    face.set_state(reply["emotion"])
-    time.sleep(0.35)
+    time.sleep(
+        0.15
+    )
 
     speech.speak(
-        reply["text"],
+        text,
         face.set_state,
     )
 
-    face.set_state(reply["emotion"])
-    time.sleep(1.0)
-    face.set_state("neutral")
+    face.set_state(
+        emotion
+    )
+
+    time.sleep(
+        0.5
+    )
+
+    face.set_state(
+        "neutral"
+    )
+
+
+def extract_name(text):
+    patterns = [
+        r"\bmy name is\s+([A-Za-z][A-Za-z\-']{1,30})",
+        r"\bi am\s+([A-Za-z][A-Za-z\-']{1,30})",
+        r"\bi'm\s+([A-Za-z][A-Za-z\-']{1,30})",
+        r"\bcall me\s+([A-Za-z][A-Za-z\-']{1,30})",
+    ]
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            text,
+            flags=re.I,
+        )
+
+        if match:
+            return match.group(
+                1
+            ).strip().title()
+
+    words = re.findall(
+        r"[A-Za-z][A-Za-z\-']+",
+        text,
+    )
+
+    if (
+        len(words) == 1
+        and 1 < len(words[0]) <= 30
+    ):
+        return words[0].title()
+
+    return None
+
+
+def save_reference_face(
+    vision,
+    name,
+):
+    root = os.getenv(
+        "JETSON_FRIEND_ROOT",
+        os.path.dirname(
+            os.path.dirname(
+                os.path.abspath(__file__)
+            )
+        ),
+    )
+
+    safe_name = re.sub(
+        r"[^a-zA-Z0-9_-]+",
+        "_",
+        name.lower(),
+    )
+
+    directory = os.path.join(
+        root,
+        "data",
+        "people",
+        safe_name,
+    )
+
+    os.makedirs(
+        directory,
+        exist_ok=True,
+    )
+
+    image = vision.snapshot_jpeg(
+        quality=92
+    )
+
+    if image is None:
+        return None
+
+    path = os.path.join(
+        directory,
+        "reference.jpg",
+    )
+
+    with open(
+        path,
+        "wb",
+    ) as file:
+        file.write(
+            image
+        )
+
+    return path
 
 
 def main():
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         "--debug",
         action="store_true",
     )
+
     parser.add_argument(
         "--no-face",
         action="store_true",
     )
+
     parser.add_argument(
         "--no-vision",
         action="store_true",
     )
+
     parser.add_argument(
         "--no-mic",
         action="store_true",
     )
+
     args = parser.parse_args()
 
+    memory = Memory()
+    behavior = Behavior(
+        memory
+    )
     face = Face()
-    ai = HughAI()
     speech = Speech()
     vision = Vision()
 
+    print(
+        "Starting Hugh...",
+        flush=True,
+    )
+
+    ai = HughAI()
+
     stop = threading.Event()
-    conversation_busy = threading.Event()
-    texts = queue.Queue()
+    busy = threading.Event()
+
+    messages = queue.Queue()
 
     threads = []
 
+    state = {
+        "awaiting_name": False,
+    }
+
+    last_object_write = {}
+
     def shutdown(*_):
-        if not stop.is_set():
-            print(
-                "\nStopping Hugh...",
-                flush=True,
-            )
+        if stop.is_set():
+            return
+
+        print(
+            "\nStopping Hugh...",
+            flush=True,
+        )
 
         stop.set()
         face.stop()
@@ -165,46 +204,44 @@ def main():
         signal.SIGINT,
         shutdown,
     )
+
     signal.signal(
         signal.SIGTERM,
         shutdown,
     )
 
-    if args.debug:
-        for key, value in env_status(
-            ai,
-            speech,
-            vision,
-        ).items():
-            print(
-                f"{key}: {value}",
-                flush=True,
-            )
-
     if not args.no_face:
-        face_thread = threading.Thread(
+        thread = threading.Thread(
             target=face.run,
             name="face",
             daemon=False,
         )
-        face_thread.start()
-        threads.append(face_thread)
+
+        thread.start()
+        threads.append(
+            thread
+        )
 
     if not args.no_vision:
-        vision_thread = threading.Thread(
+        thread = threading.Thread(
             target=vision.run,
             args=(face,),
             name="vision",
             daemon=False,
         )
-        vision_thread.start()
-        threads.append(vision_thread)
+
+        thread.start()
+        threads.append(
+            thread
+        )
 
     def keyboard():
         while not stop.is_set():
             try:
                 line = input(
-                    "> " if args.debug else ""
+                    "> "
+                    if args.debug
+                    else ""
                 )
             except EOFError:
                 return
@@ -213,89 +250,376 @@ def main():
                 return
 
             if line.strip():
-                texts.put(line)
+                messages.put(
+                    (
+                        "user",
+                        line.strip(),
+                    )
+                )
 
     def microphone():
         while not stop.is_set():
             blocked = (
-                conversation_busy.is_set()
+                busy.is_set()
                 or speech.is_speaking.is_set()
             )
 
             if blocked:
-                time.sleep(0.05)
+                time.sleep(
+                    0.05
+                )
             else:
                 text = speech.listen_once(
                     face.set_state,
                     stop_event=stop,
                 )
 
-                if text and not stop.is_set():
-                    conversation_busy.set()
-                    texts.put(text)
-
                 if (
-                    not conversation_busy.is_set()
-                    and not speech.is_speaking.is_set()
+                    text
                     and not stop.is_set()
                 ):
-                    face.set_state("neutral")
+                    messages.put(
+                        (
+                            "user",
+                            text,
+                        )
+                    )
+
+    def awareness():
+        while not stop.is_set():
+            if not args.no_vision:
+                scene = dict(
+                    vision.scene
+                )
+
+                now = time.time()
+
+                for item in scene.get(
+                    "objects",
+                    [],
+                ):
+                    label = str(
+                        item
+                    ).lower()
+
+                    last_write = last_object_write.get(
+                        label,
+                        0.0,
+                    )
+
+                    if (
+                        now - last_write
+                        >= 30.0
+                    ):
+                        memory.see_object(
+                            label
+                        )
+
+                        last_object_write[
+                            label
+                        ] = now
+
+                event = behavior.update(
+                    scene
+                )
+
+                if (
+                    event is not None
+                    and not busy.is_set()
+                    and not speech.is_speaking.is_set()
+                ):
+                    messages.put(
+                        (
+                            "proactive",
+                            event,
+                        )
+                    )
+
+            time.sleep(
+                1.0
+            )
 
     keyboard_thread = threading.Thread(
         target=keyboard,
         name="keyboard",
         daemon=True,
     )
+
     keyboard_thread.start()
 
     if not args.no_mic:
-        mic_thread = threading.Thread(
+        thread = threading.Thread(
             target=microphone,
             name="microphone",
             daemon=True,
         )
-        mic_thread.start()
+
+        thread.start()
+
+    awareness_thread = threading.Thread(
+        target=awareness,
+        name="awareness",
+        daemon=True,
+    )
+
+    awareness_thread.start()
 
     try:
         while not stop.is_set():
             try:
-                text = texts.get(
+                source, payload = messages.get(
                     timeout=0.2
                 )
             except queue.Empty:
-                text = None
+                source = None
+                payload = None
 
-            if text is not None:
-                conversation_busy.set()
+            if source == "proactive":
+                if not busy.is_set():
+                    busy.set()
+
+                    try:
+                        speak_reply(
+                            speech,
+                            face,
+                            payload["text"],
+                            payload.get(
+                                "emotion",
+                                "neutral",
+                            ),
+                        )
+                    finally:
+                        busy.clear()
+
+            if source == "user":
+                busy.set()
 
                 try:
-                    handle_text(
-                        text,
-                        ai,
-                        speech,
-                        face,
-                        vision,
-                        args.debug,
+                    text = str(
+                        payload
+                    ).strip()
+
+                    if args.debug:
+                        print(
+                            f"User: {text}",
+                            flush=True,
+                        )
+
+                    name = memory.get_profile(
+                        "name"
                     )
+
+                    if state[
+                        "awaiting_name"
+                    ]:
+                        detected_name = extract_name(
+                            text
+                        )
+
+                        if detected_name:
+                            memory.set_profile(
+                                "name",
+                                detected_name,
+                            )
+
+                            memory.remember(
+                                (
+                                    f"The person's name is "
+                                    f"{detected_name}."
+                                ),
+                                kind="identity",
+                                importance=1.0,
+                                source="onboarding",
+                            )
+
+                            photo = save_reference_face(
+                                vision,
+                                detected_name,
+                            )
+
+                            if photo:
+                                memory.set_profile(
+                                    "reference_face",
+                                    photo,
+                                )
+
+                            state[
+                                "awaiting_name"
+                            ] = False
+
+                            speak_reply(
+                                speech,
+                                face,
+                                (
+                                    f"Nice to meet you, {detected_name}. "
+                                    "I'll remember you."
+                                ),
+                                "happy",
+                            )
+
+                        else:
+                            speak_reply(
+                                speech,
+                                face,
+                                (
+                                    "I didn't catch your name. "
+                                    "Just say something like, "
+                                    "'My name is Vlad.'"
+                                ),
+                                "confused",
+                            )
+
+                    elif not name:
+                        state[
+                            "awaiting_name"
+                        ] = True
+
+                        speak_reply(
+                            speech,
+                            face,
+                            (
+                                "Hey. I don't think we've properly met yet. "
+                                "What's your name?"
+                            ),
+                            "curious",
+                        )
+
+                    elif re.search(
+                        r"\bwhat do you remember about me\b",
+                        text,
+                        flags=re.I,
+                    ):
+                        summary = memory.describe_person()
+
+                        reply = ai.ask(
+                            (
+                                "Tell me naturally what you remember about me. "
+                                "Do not invent anything."
+                            ),
+                            scene=vision.scene,
+                            person_name=name,
+                            memory_context=summary,
+                        )
+
+                        speak_reply(
+                            speech,
+                            face,
+                            reply["text"],
+                            reply["emotion"],
+                        )
+
+                    elif re.search(
+                        r"\bforget that\b|\bdon't remember that\b",
+                        text,
+                        flags=re.I,
+                    ):
+                        forgotten = memory.forget_last()
+
+                        if forgotten:
+                            response = (
+                                "Okay. I won't use that memory anymore."
+                            )
+                        else:
+                            response = (
+                                "I don't have anything recent to forget."
+                            )
+
+                        speak_reply(
+                            speech,
+                            face,
+                            response,
+                            "neutral",
+                        )
+
+                    else:
+                        memory_context = memory.context(
+                            text
+                        )
+
+                        reply = ai.ask(
+                            text,
+                            scene=vision.scene,
+                            person_name=name,
+                            memory_context=memory_context,
+                        )
+
+                        memory_request = reply.get(
+                            "memory",
+                            {},
+                        )
+
+                        if (
+                            memory_request.get(
+                                "save"
+                            )
+                            and memory_request.get(
+                                "text"
+                            )
+                        ):
+                            memory.remember(
+                                memory_request[
+                                    "text"
+                                ],
+                                kind=memory_request.get(
+                                    "kind",
+                                    "fact",
+                                ),
+                                emotion=memory_request.get(
+                                    "emotion",
+                                    "neutral",
+                                ),
+                                importance=memory_request.get(
+                                    "importance",
+                                    0.5,
+                                ),
+                                source="conversation",
+                            )
+
+                            if args.debug:
+                                print(
+                                    (
+                                        "Memory saved: "
+                                        + memory_request[
+                                            "text"
+                                        ]
+                                    ),
+                                    flush=True,
+                                )
+
+                        speak_reply(
+                            speech,
+                            face,
+                            reply["text"],
+                            reply["emotion"],
+                        )
+
                 except Exception as exc:
                     print(
                         f"Conversation error: {exc}",
                         flush=True,
                     )
-                    face.set_state("concerned")
-                    time.sleep(0.8)
-                    face.set_state("neutral")
+
+                    face.set_state(
+                        "concerned"
+                    )
+
                 finally:
-                    conversation_busy.clear()
+                    busy.clear()
 
     finally:
         shutdown()
 
-        deadline = time.monotonic() + 4.0
+        ai.close()
+
+        deadline = (
+            time.monotonic()
+            + 4.0
+        )
 
         for thread in threads:
             remaining = (
-                deadline - time.monotonic()
+                deadline
+                - time.monotonic()
             )
 
             if remaining > 0:

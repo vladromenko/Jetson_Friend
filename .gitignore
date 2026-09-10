@@ -21,3 +21,11 @@ deps/llama.cpp/
 
 deps/whisper.cpp/
 
+
+# Local runtime data
+data/
+config.env
+
+# Local backups
+*.bak
+*.bak_*

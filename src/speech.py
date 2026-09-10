@@ -144,10 +144,10 @@ class Speech:
         silence_blocks = 0
         started_at = time.monotonic()
 
-        speech_threshold = 0.012
-        silence_threshold = 0.008
+        speech_threshold = 0.006
+        silence_threshold = 0.004
         blocksize = 1024
-        silence_needed = 20
+        silence_needed = 14
 
         def callback(indata, frames_count, time_info, status):
             audio_queue.put(indata.copy())
@@ -248,7 +248,6 @@ class Speech:
                 "en",
                 "-nt",
                 "-np",
-                "--no-gpu",
             ]
 
             process = subprocess.run(
@@ -272,13 +271,33 @@ class Speech:
 
             recognized = text.splitlines()[-1].strip()
 
-            if recognized.upper() in {
+            normalized = recognized.strip().lower()
+
+            ignored = {
                 "",
-                "[BLANK_AUDIO]",
-                "[BLANK AUDIO]",
-                "[SILENCE]",
-                "[NO SPEECH]",
-            }:
+                "[blank_audio]",
+                "[blank audio]",
+                "[silence]",
+                "[no speech]",
+                "[music]",
+                "(music)",
+                "(sighs)",
+                "[sighs]",
+                "(sigh)",
+                "[sigh]",
+                "(breathing)",
+                "[breathing]",
+                "(background noise)",
+                "[background noise]",
+            }
+
+            if normalized in ignored:
+                return ""
+
+            if normalized.startswith("[") and normalized.endswith("]"):
+                return ""
+
+            if normalized.startswith("(") and normalized.endswith(")"):
                 return ""
 
             return recognized

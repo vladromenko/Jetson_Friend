@@ -512,7 +512,7 @@ if engine is None:
 
                         if (
                             face_detector is not None
-                            and now - last_faces >= 0.12
+                            and now - last_faces >= 0.30
                         ):
                             face_items = face_detector.infer(frame)
                             last_faces = now
