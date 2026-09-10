@@ -29,3 +29,9 @@ config.env
 # Local backups
 *.bak
 *.bak_*
+
+config.env
+.DS_Store
+data/
+*.bak
+*.bak_*
