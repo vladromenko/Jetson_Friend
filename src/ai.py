@@ -7,6 +7,8 @@ import time
 import urllib.error
 import urllib.request
 
+from model_manager import ModelManager
+
 
 SYSTEM_PROMPT = """
 /no_think
@@ -156,10 +158,12 @@ class HughAI:
             "",
         ).strip()
 
-        self.enable_vision = os.getenv(
+        self.vision_mode = os.getenv(
             "LLM_ENABLE_VISION",
             "0",
-        ).strip().lower() in {
+        ).strip().lower()
+
+        self.enable_vision = self.vision_mode in {
             "1",
             "true",
             "yes",
@@ -211,6 +215,10 @@ class HughAI:
         )
 
         self.server_process = None
+
+        self.model_manager = ModelManager(
+            self
+        )
 
         self.ensure_server()
 
@@ -311,7 +319,7 @@ class HughAI:
             )
 
         print(
-            "Starting local Qwen server...",
+            "Starting local LLM server...",
             flush=True,
         )
 
@@ -357,9 +365,36 @@ class HughAI:
             )
 
         print(
-            "Local Qwen server ready.",
+            "Local LLM server ready.",
             flush=True,
         )
+
+    def stop_server(self):
+        process = self.server_process
+
+        if (
+            process is not None
+            and process.poll() is None
+        ):
+            process.terminate()
+
+            try:
+                process.wait(
+                    timeout=5
+                )
+
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+                try:
+                    process.wait(
+                        timeout=2
+                    )
+
+                except subprocess.TimeoutExpired:
+                    pass
+
+        self.server_process = None
 
     @staticmethod
     def _history_key(
@@ -1012,21 +1047,21 @@ class HughAI:
             ),
         )
 
+    def list_models(self):
+        return self.model_manager.scan_models()
+
+    def get_current_model(self):
+        return self.model_manager.current_model()
+
+    def switch_model(
+        self,
+        model_path,
+        mmproj=None,
+    ):
+        return self.model_manager.switch_model(
+            model_path,
+            mmproj=mmproj,
+        )
+
     def close(self):
-        if (
-            self.server_process
-            is not None
-            and self.server_process.poll()
-            is None
-        ):
-            self.server_process.terminate()
-
-            try:
-                self.server_process.wait(
-                    timeout=5,
-                )
-
-            except (
-                subprocess.TimeoutExpired
-            ):
-                self.server_process.kill()
+        self.stop_server()
