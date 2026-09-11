@@ -1,0 +1,103 @@
+{
+  "label": "artifacts/offload99.json",
+  "context": "2048",
+  "gpu_layers": "99",
+  "runs": [
+    {
+      "prompt": "Hi Milo.",
+      "content": "I hope you're enjoying your unsweetened coffee.",
+      "reasoning": "",
+      "first_token_ms": 157.0281729996168,
+      "usage": {
+        "completion_tokens": 12,
+        "prompt_tokens": 43,
+        "total_tokens": 55,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 43,
+        "prompt_ms": 133.687,
+        "prompt_per_token_ms": 3.1090000000000004,
+        "prompt_per_second": 321.64683177870694,
+        "predicted_n": 12,
+        "predicted_ms": 644.145,
+        "predicted_per_token_ms": 58.55863636363636,
+        "predicted_per_second": 17.07690038733515
+      },
+      "total_ms": 801.0399659997347
+    },
+    {
+      "prompt": "I study robotics. Suggest one small project.",
+      "content": "Build a simple robot that can follow a line using an infrared sensor and a microcontroller.",
+      "reasoning": "",
+      "first_token_ms": 111.35289200001353,
+      "usage": {
+        "completion_tokens": 19,
+        "prompt_tokens": 50,
+        "total_tokens": 69,
+        "prompt_tokens_details": {
+          "cached_tokens": 31
+        }
+      },
+      "timings": {
+        "cache_n": 31,
+        "prompt_n": 19,
+        "prompt_ms": 83.161,
+        "prompt_per_token_ms": 4.376894736842106,
+        "prompt_per_second": 228.47248109089597,
+        "predicted_n": 19,
+        "predicted_ms": 985.771,
+        "predicted_per_token_ms": 54.765055555555556,
+        "predicted_per_second": 18.259818964039315
+      },
+      "total_ms": 1097.335182000279
+    },
+    {
+      "prompt": "What do I prefer to drink?",
+      "content": "Unsweetened coffee.",
+      "reasoning": "",
+      "first_token_ms": 106.8786480000199,
+      "usage": {
+        "completion_tokens": 6,
+        "prompt_tokens": 47,
+        "total_tokens": 53,
+        "prompt_tokens_details": {
+          "cached_tokens": 31
+        }
+      },
+      "timings": {
+        "cache_n": 31,
+        "prompt_n": 16,
+        "prompt_ms": 68.621,
+        "prompt_per_token_ms": 4.2888125,
+        "prompt_per_second": 233.16477463167254,
+        "predicted_n": 6,
+        "predicted_ms": 281.509,
+        "predicted_per_token_ms": 56.3018,
+        "predicted_per_second": 17.761421482084053
+      },
+      "total_ms": 388.6316870002702
+    }
+  ],
+  "load_ms": 4564.682957999594,
+  "tts_ms": 2886.2700109998514,
+  "whisper": [
+    {
+      "model": "ggml-base.en.bin",
+      "ms": 1194.7978059997695,
+      "code": 0,
+      "text": "Hello, Milo. Please remember that my robotics demonstration is on Friday.",
+      "backend": "ggml_cuda_init: found 1 CUDA devices (Total VRAM: 7485 MiB):\n  Device 0: Orin, compute capability 8.7, VMM: yes, VRAM: 7485 MiB\nread_audio_data: reading audio data from '/tmp/tmpumaeogjd/synthetic.wav' ...\nread_audio_data: trying to decode with miniaudio\n"
+    },
+    {
+      "model": "ggml-small.en.bin",
+      "ms": 2309.9507750002886,
+      "code": 0,
+      "text": "Hello, Milo. Please remember that my robotics demonstration is on Friday.",
+      "backend": "ggml_cuda_init: found 1 CUDA devices (Total VRAM: 7485 MiB):\n  Device 0: Orin, compute capability 8.7, VMM: yes, VRAM: 7485 MiB\nread_audio_data: reading audio data from '/tmp/tmpumaeogjd/synthetic.wav' ...\nread_audio_data: trying to decode with miniaudio\n"
+    }
+  ]
+}

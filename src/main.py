@@ -1,4 +1,6 @@
 import argparse
+import fcntl
+import os
 import queue
 import re
 import signal
@@ -10,95 +12,59 @@ from behavior import Behavior
 from emotion import EmotionManager
 from face import Face
 from identity import IdentityManager
+from intents import wants_visual
 from memory import Memory
+from memory_policy import candidate, private_turn
 from speech import Speech
+from telemetry import TurnTiming
 from vision import Vision
 
 
-def speak_reply(
-    speech,
-    face,
-    text,
-    emotion="neutral",
-):
-    emotion = emotion or "neutral"
-
-    face.set_state(
-        emotion
-    )
-
-    time.sleep(
-        0.10
-    )
-
-    speech.speak(
-        text,
-        face.set_state,
-    )
-
-    face.set_state(
-        emotion
-    )
-
-    time.sleep(
-        0.20
-    )
-
-    face.set_state(
-        "neutral"
-    )
-
-
 def extract_name(text):
+    """Extract a name only from an explicit naming statement."""
     patterns = [
-        r"\bmy name is\s+([A-Za-z][A-Za-z\-']{1,30})",
-        r"\bcall me\s+([A-Za-z][A-Za-z\-']{1,30})",
-        r"\bi am\s+([A-Za-z][A-Za-z\-']{1,30})",
-        r"\bi'm\s+([A-Za-z][A-Za-z\-']{1,30})",
+        "\\bmy name is\\s+([A-Za-z][A-Za-z\\-']{1,30})\\b",
+        "\\bcall me\\s+([A-Za-z][A-Za-z\\-']{1,30})\\b",
     ]
-
     for pattern in patterns:
-        match = re.search(
-            pattern,
-            text,
-            flags=re.I,
-        )
-
+        match = re.search(pattern, str(text or ""), flags=re.I)
         if match:
-            return match.group(
-                1
-            ).strip().title()
-
-    words = re.findall(
-        r"[A-Za-z][A-Za-z\-']+",
-        text,
-    )
-
-    if (
-        len(words) == 1
-        and 1 < len(words[0]) <= 30
-    ):
-        return words[0].title()
-
+            return match.group(1).strip().title()
     return None
 
 
-def looks_visual(text):
+def asks_assistant_identity(text):
     return bool(
         re.search(
-            (
-                r"\b("
-                r"see|seeing|look|looking|camera|face|"
-                r"wearing|holding|room|around me|surroundings|"
-                r"describe me|describe what|describe the|"
-                r"in front of you|what is this|what's this|"
-                r"what am i holding|what do i have|who is here"
-                r")\b"
-            ),
-            text,
+            "\\b(who are you|what is your name|what's your name|tell me who you are|tell me your name|who am i talking to)\\b",
+            str(text or ""),
             flags=re.I,
         )
     )
+
+
+def confirms_name(text):
+    cleaned = re.sub("[^a-z']+", " ", str(text or "").lower()).strip()
+    return bool(
+        re.fullmatch(
+            "(?:yes|yeah|yep|correct|right|that's right|that is right|yes that's right|yes that is right)",
+            cleaned,
+        )
+    )
+
+
+def rejects_name(text):
+    cleaned = re.sub("[^a-z']+", " ", str(text or "").lower()).strip()
+    return bool(
+        re.fullmatch(
+            "(?:no|nope|wrong|that's wrong|that is wrong|no that's wrong|no that is wrong)",
+            cleaned,
+        )
+    )
+
+
+def looks_visual(text):
+    return wants_visual(text)
 
 
 def detect_explicit_emotion(text):
@@ -108,25 +74,16 @@ def detect_explicit_emotion(text):
     Facial emotion remains a weak visual cue. Explicit speech
     is treated as the higher-confidence source.
     """
-
     lowered = str(text or "").strip().lower()
-
     if not lowered:
         return None
-
     negated = re.search(
-        (
-            r"\b(i(?:'m| am)|i feel|i'm feeling|i am feeling)\s+"
-            r"(?:really\s+|very\s+|pretty\s+|a bit\s+|a little\s+)?"
-            r"not\s+"
-        ),
+        "\\b(i(?:'m| am)|i feel|i'm feeling|i am feeling)\\s+(?:really\\s+|very\\s+|pretty\\s+|a bit\\s+|a little\\s+)?not\\s+",
         lowered,
         flags=re.I,
     )
-
     if negated:
         return None
-
     emotion_words = {
         "happy": "happy",
         "glad": "happy",
@@ -150,55 +107,25 @@ def detect_explicit_emotion(text):
         "calm": "calm",
         "relaxed": "calm",
     }
-
-    words = "|".join(
-        sorted(
-            emotion_words,
-            key=len,
-            reverse=True,
-        )
-    )
-
+    words = "|".join(sorted(emotion_words, key=len, reverse=True))
     patterns = [
-        (
-            r"\b(?:i feel|i'm feeling|i am feeling)\s+"
-            r"(?:really\s+|very\s+|pretty\s+|a bit\s+|a little\s+)?"
-            rf"({words})\b"
-        ),
-        (
-            r"\b(?:i'm|i am)\s+"
-            r"(?:really\s+|very\s+|pretty\s+|a bit\s+|a little\s+)?"
-            rf"({words})\b"
-        ),
+        f"\\b(?:i feel|i'm feeling|i am feeling)\\s+(?:really\\s+|very\\s+|pretty\\s+|a bit\\s+|a little\\s+)?({words})\\b",
+        f"\\b(?:i'm|i am)\\s+(?:really\\s+|very\\s+|pretty\\s+|a bit\\s+|a little\\s+)?({words})\\b",
     ]
-
     detected = None
-
     for pattern in patterns:
         if detected is None:
-            match = re.search(
-                pattern,
-                lowered,
-                flags=re.I,
-            )
-
+            match = re.search(pattern, lowered, flags=re.I)
             if match:
                 word = match.group(1).lower()
                 detected = emotion_words.get(word)
-
     return detected
 
 
 def asks_memory_summary(text):
     return bool(
         re.search(
-            (
-                r"\b("
-                r"what do you remember about me|"
-                r"what do you know about me|"
-                r"tell me what you remember about me"
-                r")\b"
-            ),
+            "\\b(what do you remember about me|what do you know about me|tell me what you remember about me)\\b",
             text,
             flags=re.I,
         )
@@ -208,13 +135,7 @@ def asks_memory_summary(text):
 def asks_forget_last(text):
     return bool(
         re.search(
-            (
-                r"\b("
-                r"forget that|"
-                r"don't remember that|"
-                r"do not remember that"
-                r")\b"
-            ),
+            "\\b(forget that|don't remember that|do not remember that)\\b",
             text,
             flags=re.I,
         )
@@ -224,14 +145,7 @@ def asks_forget_last(text):
 def asks_forget_person(text):
     return bool(
         re.search(
-            (
-                r"\b("
-                r"forget everything about me|"
-                r"delete everything about me|"
-                r"delete my profile|"
-                r"forget me completely"
-                r")\b"
-            ),
+            "\\b(forget everything about me|delete everything about me|delete my profile|forget me completely)\\b",
             text,
             flags=re.I,
         )
@@ -240,1212 +154,493 @@ def asks_forget_person(text):
 
 def main():
     parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--no-face",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--no-vision",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--no-mic",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--no-identity",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--no-emotion",
-        action="store_true",
-    )
-
+    for option in (
+        "debug",
+        "no-face",
+        "no-vision",
+        "no-mic",
+        "no-identity",
+        "no-emotion",
+    ):
+        parser.add_argument("--" + option, action="store_true")
     args = parser.parse_args()
-
+    runtime_root = os.getenv(
+        "JETSON_FRIEND_ROOT",
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    )
+    os.makedirs(os.path.join(runtime_root, "data"), exist_ok=True)
+    instance_lock = open(os.path.join(runtime_root, "data", "milo.lock"), "a")
+    try:
+        fcntl.flock(instance_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        instance_lock.close()
+        print("MILO is already running.", flush=True)
+        return
     memory = Memory()
-
-    behavior = Behavior(
-        memory
+    behavior = Behavior(memory)
+    face, speech, vision = Face(), Speech(), Vision()
+    identity = IdentityManager(memory)
+    # Facial emotion inference is opt-in; explicit words require no neural model.
+    emotion = (
+        EmotionManager(memory)
+        if not args.no_emotion and os.getenv("MILO_VISUAL_EMOTION", "0") == "1"
+        else None
     )
-
-    face = Face()
-
-    speech = Speech()
-
-    vision = Vision()
-
-    identity = IdentityManager(
-        memory
-    )
-
-    emotion = EmotionManager(
-        memory
-    )
-
-    assistant_name = "MILO"
-
-    print(
-        f"Starting {assistant_name}...",
-        flush=True,
-    )
-
     ai = HughAI()
-
-    stop = threading.Event()
-
-    busy = threading.Event()
-
-    messages = queue.Queue()
-
-    threads = []
-
-    state_lock = threading.RLock()
-
+    speech.warmup()
+    stop, busy, listening = threading.Event(), threading.Event(), threading.Event()
+    messages = queue.Queue(maxsize=8)
+    lock = threading.RLock()
     state = {
-        "awaiting_name": False,
-        "current_person_id": (
-            memory.get_current_person_id()
-        ),
-        "current_name": (
-            memory.get_profile(
-                "name"
-            )
-        ),
-        "identity_status": "LEGACY",
-        "unknown_since": None,
-        "last_identity_change": 0.0,
-        "last_emotion": None,
+        "person_id": None,
+        "name": None,
+        "epoch": 0,
+        "track_id": None,
+        "pending_name": None,
+        "scene": {},
+        "manual_until": 0.0,
     }
+    threads = []
+    last_seen_write = {}
+    observed_objects = set()
 
-    last_object_write = {}
+    def active():
+        with lock:
+            return state["person_id"], state["name"], state["epoch"]
 
-    last_identity_check = 0.0
-
-    last_reinforcement = {}
-
-    def debug_print(
-        *items,
-    ):
-        if args.debug:
-            print(
-                *items,
-                flush=True,
-            )
-
-    def set_active_person(
-        person_id,
-        name,
-        source="identity",
-    ):
-        if not person_id:
-            return False
-
+    def select(person_id, name=None, track_id=None):
+        if person_id and not memory.get_person(person_id):
+            person_id, name = None, None
         changed = False
-
-        with state_lock:
-            if (
-                state[
-                    "current_person_id"
-                ]
-                != person_id
-            ):
+        with lock:
+            if (person_id, track_id) != (state["person_id"], state["track_id"]):
                 changed = True
-
-            state[
-                "current_person_id"
-            ] = person_id
-
-            state[
-                "current_name"
-            ] = name
-
-            state[
-                "identity_status"
-            ] = source
-
-            state[
-                "unknown_since"
-            ] = None
-
-            if changed:
-                state[
-                    "last_identity_change"
-                ] = time.time()
-
-        memory.set_current_person(
-            person_id
-        )
-
-        memory.touch_person(
-            person_id
-        )
-
+                state["epoch"] += 1
+                state["pending_name"] = None
+                state["manual_until"] = 0.0
+                if emotion:
+                    emotion.reset_person()
+            state.update(person_id=person_id, name=name, track_id=track_id)
         if changed:
-            emotion.reset_person()
+            if speech.is_speaking.is_set():
+                speech.stop_speaking()
+            memory.set_current_person(person_id)
 
-            debug_print(
-                (
-                    f"Active person: "
-                    f"{name} "
-                    f"({person_id}) "
-                    f"via {source}"
-                )
-            )
+    def shutdown(*_):
+        stop.set()
+        speech.stop_speaking()
+        vision.stop()
+        face.stop()
 
-        return changed
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
 
-    def active_person():
-        with state_lock:
-            return (
-                state[
-                    "current_person_id"
-                ],
-                state[
-                    "current_name"
-                ],
-            )
-
-    def clear_active_person():
-        if not identity.available:
-            return
-
-        with state_lock:
-            state[
-                "current_person_id"
-            ] = None
-
-            state[
-                "current_name"
-            ] = None
-
-            state[
-                "identity_status"
-            ] = "UNKNOWN"
-
-    def shutdown(
-        *_,
-    ):
-        if not stop.is_set():
-            print(
-                (
-                    f"\nStopping "
-                    f"{assistant_name}..."
-                ),
-                flush=True,
-            )
-
-            stop.set()
-
-            face.stop()
-
-            vision.stop()
-
-    signal.signal(
-        signal.SIGINT,
-        shutdown,
-    )
-
-    signal.signal(
-        signal.SIGTERM,
-        shutdown,
-    )
-
-    if not args.no_face:
-        thread = threading.Thread(
-            target=face.run,
-            name="face",
-            daemon=False,
-        )
-
+    def start_thread(target, name, args=(), daemon=True):
+        thread = threading.Thread(target=target, name=name, args=args, daemon=daemon)
         thread.start()
+        threads.append(thread)
 
-        threads.append(
-            thread
+    def enqueue(text, source, initial=None, timing=None):
+        current = active()
+        # If the audience changed while listening, treat this as an anonymous turn.
+        audience = (
+            current
+            if initial is None or initial == current
+            else (None, None, current[2])
         )
-
-    if not args.no_vision:
-        thread = threading.Thread(
-            target=vision.run,
-            args=(
-                face,
-            ),
-            name="vision",
-            daemon=False,
-        )
-
-        thread.start()
-
-        threads.append(
-            thread
-        )
+        try:
+            messages.put_nowait(
+                (text, source, audience, timing or TurnTiming(source=source))
+            )
+        except queue.Full:
+            print("Input queue full; discarded stale input.", flush=True)
 
     def keyboard():
         while not stop.is_set():
-            line = None
-
             try:
-                line = input(
-                    ">"
-                    if not args.debug
-                    else "> "
-                )
-
-            except EOFError:
+                text = input("> " if args.debug else "")
+            except (EOFError, KeyboardInterrupt):
                 return
-
-            except KeyboardInterrupt:
-                shutdown()
-                return
-
-            if (
-                line
-                and line.strip()
-            ):
-                messages.put(
-                    (
-                        "user",
-                        line.strip(),
-                    )
-                )
+            if text.strip():
+                enqueue(text.strip(), "keyboard")
 
     def microphone():
         while not stop.is_set():
-            blocked = (
-                busy.is_set()
-                or speech.is_speaking.is_set()
-            )
+            if busy.is_set() or speech.is_speaking.is_set():
+                stop.wait(0.05)
+                continue
+            initial = active()
 
-            if blocked:
-                time.sleep(
-                    0.05
-                )
-
-            else:
-                text = speech.listen_once(
-                    face.set_state,
-                    stop_event=stop,
-                )
-
-                if (
-                    text
-                    and not stop.is_set()
-                ):
-                    messages.put(
-                        (
-                            "user",
-                            text,
-                        )
-                    )
-
-    def process_identity(
-        scene,
-    ):
-        nonlocal last_identity_check
-
-        if (
-            args.no_identity
-            or args.no_vision
-            or not identity.available
-        ):
-            return
-
-        now = time.monotonic()
-
-        person_visible = bool(
-            scene.get(
-                "person_present"
-            )
-        )
-
-        if not person_visible:
-            identity.clear_current_identity()
-
-            clear_active_person()
-
-            with state_lock:
-                state[
-                    "unknown_since"
-                ] = None
-
-            return
-
-        if (
-            now
-            - last_identity_check
-            < 0.6
-        ):
-            return
-
-        last_identity_check = now
-
-        result = (
-            identity
-            .recognize_from_vision(
-                vision
-            )
-        )
-
-        if (
-            result.status
-            == "KNOWN"
-        ):
-            set_active_person(
-                result.person_id,
-                result.name,
-                source="FACE",
-            )
-
-            wall_now = time.time()
-
-            previous = (
-                last_reinforcement.get(
-                    result.person_id,
-                    0.0,
-                )
-            )
-
-            if (
-                result.similarity
-                >= identity
-                .strong_match_threshold
-                and wall_now
-                - previous
-                >= 3600.0
-            ):
-                reinforced = (
-                    identity
-                    .reinforce_identity(
-                        result.person_id,
-                        vision,
-                    )
-                )
-
-                if reinforced:
-                    last_reinforcement[
-                        result.person_id
-                    ] = wall_now
-
-                    debug_print(
-                        (
-                            "Added identity "
-                            "reinforcement for "
-                            f"{result.name}"
-                        )
-                    )
-
-        elif result.status in {
-            "UNKNOWN",
-            "LOW_QUALITY",
-            "NO_FACE",
-        }:
-            with state_lock:
-                if (
-                    state[
-                        "unknown_since"
-                    ]
-                    is None
-                ):
-                    state[
-                        "unknown_since"
-                    ] = time.time()
-
-                state[
-                    "identity_status"
-                ] = result.status
-
-        debug_print(
-            "Identity:",
-            result.status,
-            result.name,
-            (
-                f"similarity="
-                f"{result.similarity:.3f}"
-            ),
-        )
-
-    def process_emotion(
-        scene,
-    ):
-        if (
-            args.no_emotion
-            or args.no_vision
-            or not emotion.available
-        ):
-            return
-
-        person_id, _ = (
-            active_person()
-        )
-
-        if (
-            not person_id
-            or not scene.get(
-                "person_present"
-            )
-        ):
-            return
-
-        result = (
-            emotion
-            .observe_from_vision(
-                vision,
-                person_id=person_id,
-            )
-        )
-
-        if (
-            result.status
-            == "STABLE"
-        ):
-            with state_lock:
-                state[
-                    "last_emotion"
-                ] = result.as_dict()
-
-            debug_print(
-                "Face emotion:",
-                result.emotion,
-                (
-                    f"confidence="
-                    f"{result.confidence:.2f}"
-                ),
-            )
-
-    def process_objects(
-        scene,
-    ):
-        now = time.time()
-
-        for item in scene.get(
-            "objects",
-            [],
-        ):
-            label = str(
-                item
-            ).lower()
-
-            last_write = (
-                last_object_write.get(
-                    label,
-                    0.0,
-                )
-            )
-
-            if (
-                now
-                - last_write
-                >= 30.0
-            ):
-                memory.see_object(
-                    label
-                )
-
-                last_object_write[
-                    label
-                ] = now
-
-    def awareness():
-        while not stop.is_set():
-            if not args.no_vision:
-                scene = (
-                    vision.get_scene()
-                )
-
-                process_identity(
-                    scene
-                )
-
-                process_emotion(
-                    scene
-                )
-
-                process_objects(
-                    scene
-                )
-
-                event = behavior.update(
-                    scene
-                )
-
-                if (
-                    event is not None
-                    and not busy.is_set()
-                    and not speech
-                    .is_speaking
-                    .is_set()
-                ):
-                    messages.put(
-                        (
-                            "proactive",
-                            event,
-                        )
-                    )
-
-            time.sleep(
-                0.25
-            )
-
-    keyboard_thread = (
-        threading.Thread(
-            target=keyboard,
-            name="keyboard",
-            daemon=True,
-        )
-    )
-
-    keyboard_thread.start()
-
-    if not args.no_mic:
-        thread = (
-            threading.Thread(
-                target=microphone,
-                name="microphone",
-                daemon=True,
-            )
-        )
-
-        thread.start()
-
-    awareness_thread = (
-        threading.Thread(
-            target=awareness,
-            name="awareness",
-            daemon=True,
-        )
-    )
-
-    awareness_thread.start()
-
-    try:
-        while not stop.is_set():
-            source = None
-
-            payload = None
+            def mic_state(value):
+                if value == "listening":
+                    listening.set()
+                face.set_state(value)
 
             try:
-                source, payload = (
-                    messages.get(
-                        timeout=0.2
+                text = speech.listen_once(mic_state, stop_event=stop)
+                if text and not stop.is_set() and not busy.is_set():
+                    timing = TurnTiming(
+                        start=getattr(speech, "last_speech_end", None),
+                        source="microphone",
                     )
-                )
+                    timing.mark("stt_complete")
+                    enqueue(text, "microphone", initial, timing)
+            except Exception as exc:
+                print(f"Microphone recovering: {exc}", flush=True)
+                stop.wait(1.0)
+            finally:
+                listening.clear()
 
-            except queue.Empty:
-                pass
+    def awareness():
+        nonlocal observed_objects
+        while not stop.is_set():
+            try:
+                scene = vision.get_scene() if not args.no_vision else {}
+                fresh = time.time() - scene.get("updated", 0) < 2
+                tracks = scene.get("face_tracks", []) if fresh else []
+                people = []
+                if not args.no_identity and identity.available:
+                    for track in tracks:
+                        result = identity.recognize_from_vision(
+                            vision, track_id=track["track_id"]
+                        )
+                        people.append(
+                            {**result.as_dict(), "track_id": track["track_id"]}
+                        )
+                else:
+                    people = [
+                        {"person_id": None, "track_id": t["track_id"]} for t in tracks
+                    ]
+                with lock:
+                    manual = state["manual_until"] > time.monotonic()
+                    manual_track = state["track_id"]
+                if not args.no_vision:
+                    if len(people) == 1 and people[0].get("person_id"):
+                        p = people[0]
+                        select(p["person_id"], p["name"], p["track_id"])
+                    elif not (
+                        manual
+                        and len(people) == 1
+                        and people[0]["track_id"] == manual_track
+                    ):
+                        select(
+                            None,
+                            track_id=tracks[0]["track_id"]
+                            if len(tracks) == 1
+                            else None,
+                        )
+                elif not manual:
+                    select(None)
+                scene["people"] = people
+                behavior.update(scene, busy=busy.is_set(), listening=listening.is_set())
+                with lock:
+                    state["scene"] = scene
+                for p in people:
+                    pid = p.get("person_id")
+                    if pid and time.time() - last_seen_write.get(pid, 0) >= 30:
+                        memory.touch_person(pid)
+                        last_seen_write[pid] = time.time()
+                # Store class-level appearance transitions, never infer ownership/use.
+                objects = set(scene.get("objects", [])) if fresh else observed_objects
+                for label in objects - observed_objects:
+                    memory.see_object(label)
+                observed_objects = objects
+            except Exception as exc:
+                select(None)
+                with lock:
+                    state["scene"] = {}
+                print(f"Awareness recovering: {exc}", flush=True)
+            stop.wait(0.25)
 
-            if (
-                source
-                == "proactive"
-            ):
-                if not busy.is_set():
-                    busy.set()
+    def say(text, mood="neutral", timing=None, audience=None):
+        if stop.is_set() or (audience and audience != active()):
+            return
+        face.set_state(mood)
+        speech.speak(text, face.set_state, timing=timing)
+        behavior.note_speech()
+        face.set_state("neutral")
 
+    def stream(text, pid, name, context, timing, audience):
+        phrases = queue.Queue(maxsize=4)
+        cancel = threading.Event()
+
+        def produce():
+            try:
+                for phrase in ai.stream_reply(
+                    text,
+                    person_id=pid,
+                    person_name=name,
+                    memory_context=context,
+                    timing=timing,
+                ):
+                    while not cancel.is_set():
+                        try:
+                            phrases.put(phrase, timeout=0.2)
+                            break
+                        except queue.Full:
+                            pass
+                    if cancel.is_set():
+                        break
+            except Exception as exc:
+                print(f"Streaming failed: {exc}", flush=True)
+            finally:
+                while not cancel.is_set():
                     try:
-                        speak_reply(
-                            speech,
-                            face,
-                            payload[
-                                "text"
-                            ],
-                            payload.get(
-                                "emotion",
-                                "neutral",
-                            ),
-                        )
+                        phrases.put(None, timeout=0.2)
+                        break
+                    except queue.Full:
+                        pass
 
-                    finally:
-                        busy.clear()
-
-            elif source == "user":
-                busy.set()
-
+        worker = threading.Thread(target=produce, name="llm-stream", daemon=True)
+        worker.start()
+        spoken = False
+        try:
+            while not stop.is_set():
                 try:
-                    text = str(
-                        payload
-                    ).strip()
-
-                    if args.debug:
-                        print(
-                            (
-                                f"User: "
-                                f"{text}"
-                            ),
-                            flush=True,
-                        )
-
-                    if looks_visual(
-                        text
-                    ):
-                        vision.request_visual_attention(
-                            3.0
-                        )
-
-                    (
-                        person_id,
-                        name,
-                    ) = active_person()
-
-                    with state_lock:
-                        awaiting_name = (
-                            state[
-                                "awaiting_name"
-                            ]
-                        )
-
-                    if awaiting_name:
-                        detected_name = (
-                            extract_name(
-                                text
-                            )
-                        )
-
-                        if detected_name:
-                            existing = (
-                                memory
-                                .find_person_by_name(
-                                    detected_name
-                                )
-                            )
-
-                            if existing:
-                                person_id = (
-                                    existing[
-                                        "id"
-                                    ]
-                                )
-
-                            else:
-                                person_id = (
-                                    memory
-                                    .create_person(
-                                        detected_name,
-                                        make_current=True,
-                                    )
-                                )
-
-                            set_active_person(
-                                person_id,
-                                detected_name,
-                                source=(
-                                    "ONBOARDING"
-                                ),
-                            )
-
-                            memory.remember(
-                                (
-                                    "The person's "
-                                    "name is "
-                                    f"{detected_name}."
-                                ),
-                                kind="identity",
-                                importance=1.0,
-                                source=(
-                                    "onboarding"
-                                ),
-                                person_id=(
-                                    person_id
-                                ),
-                            )
-
-                            enrolled = False
-
-                            sample_count = 0
-
-                            if (
-                                identity.available
-                                and not args.no_identity
-                            ):
-                                enrollment = (
-                                    identity
-                                    .enroll_person_from_vision(
-                                        detected_name,
-                                        vision,
-                                        samples=5,
-                                        timeout=6.0,
-                                    )
-                                )
-
-                                enrolled = bool(
-                                    enrollment.get(
-                                        "ok"
-                                    )
-                                )
-
-                                sample_count = int(
-                                    enrollment.get(
-                                        "samples",
-                                        0,
-                                    )
-                                )
-
-                            with state_lock:
-                                state[
-                                    "awaiting_name"
-                                ] = False
-
-                            if enrolled:
-                                onboarding_text = (
-                                    f"Nice to meet you, "
-                                    f"{detected_name}. "
-                                    "I'll recognize you "
-                                    "next time."
-                                )
-
-                            elif (
-                                identity.available
-                            ):
-                                onboarding_text = (
-                                    f"Nice to meet you, "
-                                    f"{detected_name}. "
-                                    "I saved your profile, "
-                                    "but I need a clearer "
-                                    "look at your face before "
-                                    "I can recognize you "
-                                    "reliably."
-                                )
-
-                            else:
-                                onboarding_text = (
-                                    f"Nice to meet you, "
-                                    f"{detected_name}. "
-                                    "I'll remember your "
-                                    "profile. Face recognition "
-                                    "will activate when its "
-                                    "model is installed."
-                                )
-
-                            debug_print(
-                                (
-                                    "Enrollment samples "
-                                    f"for {detected_name}: "
-                                    f"{sample_count}"
-                                )
-                            )
-
-                            speak_reply(
-                                speech,
-                                face,
-                                onboarding_text,
-                                "happy",
-                            )
-
-                        else:
-                            speak_reply(
-                                speech,
-                                face,
-                                (
-                                    "I didn't catch your "
-                                    "name. Just say, "
-                                    "'My name is Vlad.'"
-                                ),
-                                "confused",
-                            )
-
-                    elif not name:
-                        with state_lock:
-                            state[
-                                "awaiting_name"
-                            ] = True
-
-                        speak_reply(
-                            speech,
-                            face,
-                            (
-                                "Hey. I don't think "
-                                "we've met yet. "
-                                "What's your name?"
-                            ),
-                            "curious",
-                        )
-
-                    elif asks_forget_person(
-                        text
-                    ):
-                        old_name = name
-
-                        if identity.available:
-                            identity.delete_face_data(
-                                person_id
-                            )
-
-                        memory.forget_person(
-                            person_id
-                        )
-
-                        emotion.reset_person(
-                            person_id
-                        )
-
-                        with state_lock:
-                            state[
-                                "current_person_id"
-                            ] = None
-
-                            state[
-                                "current_name"
-                            ] = None
-
-                            state[
-                                "identity_status"
-                            ] = "UNKNOWN"
-
-                            state[
-                                "awaiting_name"
-                            ] = False
-
-                        speak_reply(
-                            speech,
-                            face,
-                            (
-                                "Okay. I deleted "
-                                "the profile and "
-                                "memories I had for "
-                                f"{old_name}."
-                            ),
-                            "neutral",
-                        )
-
-                    elif asks_memory_summary(
-                        text
-                    ):
-                        summary = (
-                            memory
-                            .describe_person(
-                                person_id=(
-                                    person_id
-                                )
-                            )
-                        )
-
-                        emotion_context = (
-                            emotion
-                            .get_context(
-                                person_id=(
-                                    person_id
-                                )
-                            )
-                        )
-
-                        context = summary
-
-                        if emotion_context:
-                            context += (
-                                "\nTemporary "
-                                "emotional context: "
-                                + str(
-                                    emotion_context
-                                )
-                            )
-
-                        reply = ai.ask(
-                            (
-                                "Tell me naturally "
-                                "what you remember "
-                                "about me. Do not "
-                                "invent anything."
-                            ),
-                            scene=(
-                                vision.get_scene()
-                            ),
-                            person_name=name,
-                            memory_context=(
-                                context
-                            ),
-                        )
-
-                        speak_reply(
-                            speech,
-                            face,
-                            reply[
-                                "text"
-                            ],
-                            reply.get(
-                                "emotion",
-                                "neutral",
-                            ),
-                        )
-
-                    elif asks_forget_last(
-                        text
-                    ):
-                        forgotten = (
-                            memory
-                            .forget_last(
-                                person_id=(
-                                    person_id
-                                )
-                            )
-                        )
-
-                        if forgotten:
-                            response = (
-                                "Okay. I won't use "
-                                "that memory anymore."
-                            )
-
-                        else:
-                            response = (
-                                "I don't have "
-                                "anything recent "
-                                "to forget."
-                            )
-
-                        speak_reply(
-                            speech,
-                            face,
-                            response,
-                            "neutral",
-                        )
-
-                    else:
-                        explicit_emotion = (
-                            detect_explicit_emotion(
-                                text
-                            )
-                        )
-
-                        if (
-                            explicit_emotion
-                            and not args.no_emotion
-                        ):
-                            if person_id:
-                                emotion.set_explicit_emotion(
-                                    person_id=person_id,
-                                    emotion=explicit_emotion,
-                                    text=text,
-                                    confidence=0.95,
-                                )
-
-                            with state_lock:
-                                state[
-                                    "last_emotion"
-                                ] = {
-                                    "emotion": (
-                                        explicit_emotion
-                                    ),
-                                    "source": (
-                                        "explicit_speech"
-                                    ),
-                                    "confidence": 0.95,
-                                    "updated_at": time.time(),
-                                }
-
-                            debug_print(
-                                (
-                                    "Explicit emotion: "
-                                    f"{explicit_emotion}"
-                                )
-                            )
-
-                        memory_context = (
-                            memory.context(
-                                text,
-                                person_id=(
-                                    person_id
-                                ),
-                            )
-                        )
-
-                        emotion_context = (
-                            emotion.get_context(
-                                person_id=(
-                                    person_id
-                                )
-                            )
-                        )
-
-                        if not emotion_context:
-                            with state_lock:
-                                recent_emotion = state.get(
-                                    "last_emotion"
-                                )
-
-                            if recent_emotion:
-                                updated_at = float(
-                                    recent_emotion.get(
-                                        "updated_at",
-                                        0.0,
-                                    )
-                                )
-
-                                if (
-                                    updated_at > 0.0
-                                    and time.time() - updated_at <= 600.0
-                                ):
-                                    emotion_context = dict(
-                                        recent_emotion
-                                    )
-
-                        if emotion_context:
-                            memory_context += (
-                                "\nTemporary "
-                                "emotional context: "
-                                + str(
-                                    emotion_context
-                                )
-                            )
-
-                        if (
-                            looks_visual(text)
-                            and not args.no_vision
-                        ):
-                            image_bytes = vision.snapshot_jpeg(
-                                quality=85
-                            )
-
-                            reply = ai.ask_visual(
-                                text,
-                                image_bytes=image_bytes,
-                                person_name=name,
-                                memory_context=memory_context,
-                                emotional_context=emotion_context,
-                            )
-                        else:
-                            reply = ai.ask(
-                                text,
-                                scene=vision.get_scene(),
-                                person_name=name,
-                                memory_context=memory_context,
-                                emotional_context=emotion_context,
-                            )
-
-                        memory_request = (
-                            reply.get(
-                                "memory",
-                                {},
-                            )
-                        )
-
-                        if (
-                            memory_request.get(
-                                "save"
-                            )
-                            and memory_request.get(
-                                "text"
-                            )
-                        ):
-                            memory_id = (
-                                memory.remember(
-                                    memory_request[
-                                        "text"
-                                    ],
-                                    kind=(
-                                        memory_request
-                                        .get(
-                                            "kind",
-                                            "fact",
-                                        )
-                                    ),
-                                    emotion=(
-                                        memory_request
-                                        .get(
-                                            "emotion",
-                                            "neutral",
-                                        )
-                                    ),
-                                    importance=(
-                                        memory_request
-                                        .get(
-                                            "importance",
-                                            0.5,
-                                        )
-                                    ),
-                                    source=(
-                                        "conversation"
-                                    ),
-                                    person_id=(
-                                        person_id
-                                    ),
-                                    confidence=(
-                                        memory_request
-                                        .get(
-                                            "confidence",
-                                            1.0,
-                                        )
-                                    ),
-                                )
-                            )
-
-                            if (
-                                args.debug
-                                and memory_id
-                            ):
-                                print(
-                                    (
-                                        "Memory saved: "
-                                        + memory_request[
-                                            "text"
-                                        ]
-                                    ),
-                                    flush=True,
-                                )
-
-                        speak_reply(
-                            speech,
-                            face,
-                            reply[
-                                "text"
-                            ],
-                            reply.get(
-                                "emotion",
-                                "neutral",
-                            ),
-                        )
-
-                except Exception as exc:
-                    print(
-                        (
-                            "Conversation "
-                            f"error: {exc}"
-                        ),
-                        flush=True,
-                    )
-
-                    face.set_state(
-                        "concerned"
-                    )
-
-                finally:
-                    busy.clear()
-
-    finally:
-        shutdown()
-
-        ai.close()
-
-        deadline = (
-            time.monotonic()
-            + 4.0
-        )
-
-        for thread in threads:
-            remaining = (
-                deadline
-                - time.monotonic()
+                    phrase = phrases.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+                if phrase is None:
+                    break
+                if audience != active():
+                    break
+                say(phrase, timing=timing, audience=audience)
+                spoken = True
+        finally:
+            cancel.set()
+            worker.join(timeout=ai.timeout + 1)
+        if not spoken and audience == active():
+            say(
+                "I couldn't finish that reply. Try me again.",
+                "concerned",
+                timing,
+                audience,
             )
 
-            if remaining > 0:
-                thread.join(
-                    timeout=remaining
+    if not args.no_face:
+        start_thread(face.run, "face")
+    if not args.no_vision:
+        start_thread(vision.run, "vision", (face,))
+    start_thread(awareness, "awareness")
+    start_thread(keyboard, "keyboard")
+    if not args.no_mic:
+        start_thread(microphone, "microphone")
+    print("MILO ready.", flush=True)
+    try:
+        while not stop.is_set():
+            try:
+                text, source, audience, timing = messages.get(timeout=0.25)
+            except queue.Empty:
+                with lock:
+                    scene = dict(state["scene"])
+                event = behavior.update(
+                    scene, busy=busy.is_set(), listening=listening.is_set()
                 )
-
-        print(
-            (
-                f"{assistant_name} "
-                "stopped."
-            ),
-            flush=True,
-        )
+                if event and event["person_id"] == active()[0]:
+                    busy.set()
+                    try:
+                        behavior.acknowledge(event)
+                        say(event["text"], "happy", audience=active())
+                    finally:
+                        busy.clear()
+                continue
+            busy.set()
+            try:
+                if audience != active():
+                    audience = (None, None, active()[2])
+                pid, name, _ = audience
+                guarded_audience = active()
+                suppress = private_turn(text)
+                with lock:
+                    pending = state["pending_name"]
+                    track_id = state["track_id"]
+                detected_name = extract_name(text)
+                if asks_assistant_identity(text):
+                    say("I'm MILO, your local AI companion.", "happy", timing)
+                elif text.strip().lower().rstrip("?!.,") in {"milo", "hey milo"}:
+                    say("Yeah, I'm listening.", timing=timing)
+                elif asks_forget_person(text):
+                    if not pid:
+                        say(
+                            "I need to recognize you before I can delete your profile.",
+                            timing=timing,
+                        )
+                    else:
+                        memory.forget_person(pid)
+                        identity.clear_current_identity()
+                        ai.clear_history(pid)
+                        behavior.forget_person(pid)
+                        if emotion:
+                            emotion.reset_person(pid)
+                        select(None)
+                        say(
+                            "Okay. I deleted your profile, face references, and memories from the active database.",
+                            timing=timing,
+                        )
+                elif asks_forget_last(text):
+                    forgotten = memory.forget_last(person_id=pid)
+                    ai.clear_history(pid) if pid else None
+                    say(
+                        "Okay, I've forgotten that."
+                        if forgotten
+                        else "I don't have a recent memory to forget.",
+                        timing=timing,
+                    )
+                elif asks_memory_summary(text):
+                    # Direct retrieval avoids model invention and unnecessary latency.
+                    say(
+                        memory.describe_person(limit=5, person_id=pid),
+                        timing=timing,
+                        audience=guarded_audience,
+                    )
+                elif not suppress and re.match(r"(?:please )?remember\b", text, re.I):
+                    item = candidate(text)
+                    if not pid:
+                        say(
+                            "I need to recognize you before I can save a personal memory.",
+                            timing=timing,
+                        )
+                    elif item and memory.remember(
+                        **item, person_id=pid, confidence=0.95, source="explicit_text"
+                    ):
+                        say(
+                            "Okay, I've saved that.",
+                            timing=timing,
+                            audience=guarded_audience,
+                        )
+                    else:
+                        say("I'll leave that out of long-term memory.", timing=timing)
+                elif detected_name and not suppress:
+                    with lock:
+                        state["pending_name"] = (
+                            detected_name,
+                            time.monotonic(),
+                            state["epoch"],
+                        )
+                    say(f"I heard {detected_name}. Is that right?", "curious", timing)
+                elif (
+                    pending
+                    and confirms_name(text)
+                    and time.monotonic() - pending[1] <= 30
+                    and pending[2] == active()[2]
+                ):
+                    if not args.no_vision and track_id is None:
+                        say(
+                            "Let's do that when I can see just you clearly.",
+                            timing=timing,
+                        )
+                    else:
+                        # A name is a label, never a credential for an existing profile.
+                        new_pid = memory.create_person(pending[0], make_current=False)
+                        select(new_pid, pending[0], track_id)
+                        with lock:
+                            state["manual_until"] = time.monotonic() + 60
+                        memory.remember(
+                            f"My name is {pending[0]}.",
+                            kind="identity",
+                            person_id=new_pid,
+                            source="onboarding",
+                            importance=1,
+                        )
+                        enrollment = {"ok": False}
+                        if (
+                            identity.available
+                            and not args.no_identity
+                            and not args.no_vision
+                        ):
+                            enrollment = identity.enroll_person_from_vision(
+                                pending[0], vision, person_id=new_pid, timeout=6
+                            )
+                        say(
+                            f"Nice to meet you, {pending[0]}. "
+                            + (
+                                "I saved several face references."
+                                if enrollment["ok"]
+                                else "Your profile is saved; I still need clearer face samples for recognition."
+                            ),
+                            "happy",
+                            timing,
+                        )
+                    with lock:
+                        state["pending_name"] = None
+                elif pending and rejects_name(text):
+                    with lock:
+                        state["pending_name"] = None
+                    say("Okay. Tell me again using 'My name is ...'.", timing=timing)
+                else:
+                    if suppress and pid:
+                        ai.clear_history(pid)
+                    context = "" if suppress else memory.context(text, person_id=pid)
+                    timing.mark("memory_complete")
+                    explicit_emotion = detect_explicit_emotion(text)
+                    if pid and explicit_emotion and not suppress:
+                        memory.set_temporary_state(
+                            "emotion",
+                            {"emotion": explicit_emotion, "source": "explicit_speech"},
+                            person_id=pid,
+                            ttl_seconds=600,
+                        )
+                    if looks_visual(text) and not args.no_vision:
+                        vision.request_visual_attention(3)
+                        reply = ai.ask_visual(
+                            text,
+                            vision.snapshot_jpeg(),
+                            person_id=None if suppress else pid,
+                            person_name=name,
+                            memory_context=context,
+                            timing=timing,
+                        )
+                        say(
+                            reply["text"],
+                            reply.get("emotion"),
+                            timing,
+                            guarded_audience,
+                        )
+                    elif os.getenv("LLM_STREAM", "0") == "1":
+                        stream(
+                            text,
+                            None if suppress else pid,
+                            name,
+                            context,
+                            timing,
+                            guarded_audience,
+                        )
+                    else:
+                        reply = ai.ask(
+                            text,
+                            scene=vision.get_scene(),
+                            person_id=None if suppress else pid,
+                            person_name=name,
+                            memory_context=context,
+                            timing=timing,
+                        )
+                        say(
+                            reply["text"],
+                            reply.get("emotion"),
+                            timing,
+                            guarded_audience,
+                        )
+                    item = candidate(text)
+                    if item and pid and guarded_audience == active():
+                        memory.remember(
+                            **item,
+                            person_id=pid,
+                            confidence=0.95,
+                            source="explicit_text",
+                        )
+            except Exception as exc:
+                print(f"Conversation recovering: {exc}", flush=True)
+                face.set_state("concerned")
+            finally:
+                timing.finish()
+                busy.clear()
+    finally:
+        shutdown()
+        ai.close()
+        for thread in threads:
+            thread.join(timeout=1)
+        instance_lock.close()
+        print("MILO stopped.", flush=True)
 
 
 if __name__ == "__main__":

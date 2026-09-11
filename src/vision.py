@@ -9,6 +9,8 @@ import cv2
 import numpy as np
 import yaml
 
+from tracking import FaceTracks
+
 
 class TensorRTEngine:
     def __init__(self, engine_path):
@@ -30,16 +32,12 @@ class TensorRTEngine:
         self.engine = runtime.deserialize_cuda_engine(engine_data)
 
         if self.engine is None:
-            raise RuntimeError(
-                f"Could not load TensorRT engine: {engine_path}"
-            )
+            raise RuntimeError(f"Could not load TensorRT engine: {engine_path}")
 
         self.context = self.engine.create_execution_context()
 
         if self.context is None:
-            raise RuntimeError(
-                f"Could not create TensorRT context: {engine_path}"
-            )
+            raise RuntimeError(f"Could not create TensorRT context: {engine_path}")
 
         error, stream = cudart.cudaStreamCreate()
         self._check_cuda(error, "cudaStreamCreate")
@@ -48,20 +46,12 @@ class TensorRTEngine:
         for index in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(index)
             mode = self.engine.get_tensor_mode(name)
-            shape = tuple(
-                self.engine.get_tensor_shape(name)
-            )
-            dtype = trt.nptype(
-                self.engine.get_tensor_dtype(name)
-            )
+            shape = tuple(self.engine.get_tensor_shape(name))
+            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
 
-            if any(
-                dimension < 0
-                for dimension in shape
-            ):
+            if any(dimension < 0 for dimension in shape):
                 raise RuntimeError(
-                    f"Dynamic TensorRT shape is not supported: "
-                    f"{name} {shape}"
+                    f"Dynamic TensorRT shape is not supported: {name} {shape}"
                 )
 
             host = np.empty(
@@ -69,9 +59,7 @@ class TensorRTEngine:
                 dtype=dtype,
             )
 
-            error, device = cudart.cudaMalloc(
-                host.nbytes
-            )
+            error, device = cudart.cudaMalloc(host.nbytes)
             self._check_cuda(
                 error,
                 f"cudaMalloc {name}",
@@ -97,13 +85,8 @@ class TensorRTEngine:
         error,
         operation,
     ):
-        if (
-            error
-            != self.cudart.cudaError_t.cudaSuccess
-        ):
-            raise RuntimeError(
-                f"{operation} failed: {error}"
-            )
+        if error != self.cudart.cudaError_t.cudaSuccess:
+            raise RuntimeError(f"{operation} failed: {error}")
 
     def infer(
         self,
@@ -111,23 +94,13 @@ class TensorRTEngine:
         input_data,
     ):
         if self.closed:
-            raise RuntimeError(
-                "TensorRT engine is closed"
-            )
+            raise RuntimeError("TensorRT engine is closed")
 
-        entry = self.inputs[
-            input_name
-        ]
+        entry = self.inputs[input_name]
 
-        if (
-            entry["host"].shape
-            != input_data.shape
-        ):
+        if entry["host"].shape != input_data.shape:
             raise RuntimeError(
-                f"Unexpected shape "
-                f"{input_data.shape}; "
-                f"expected "
-                f"{entry['host'].shape}"
+                f"Unexpected shape {input_data.shape}; expected {entry['host'].shape}"
             )
 
         np.copyto(
@@ -148,12 +121,8 @@ class TensorRTEngine:
             f"H2D {input_name}",
         )
 
-        if not self.context.execute_async_v3(
-            int(self.stream)
-        ):
-            raise RuntimeError(
-                "TensorRT execute_async_v3 failed"
-            )
+        if not self.context.execute_async_v3(int(self.stream)):
+            raise RuntimeError("TensorRT execute_async_v3 failed")
 
         for name, output in self.outputs.items():
             error = self.cudart.cudaMemcpyAsync(
@@ -169,23 +138,14 @@ class TensorRTEngine:
                 f"D2H {name}",
             )
 
-        error = (
-            self.cudart
-            .cudaStreamSynchronize(
-                self.stream
-            )[0]
-        )
+        error = self.cudart.cudaStreamSynchronize(self.stream)[0]
 
         self._check_cuda(
             error,
             "cudaStreamSynchronize",
         )
 
-        return {
-            name: output["host"].copy()
-            for name, output
-            in self.outputs.items()
-        }
+        return {name: output["host"].copy() for name, output in self.outputs.items()}
 
     def close(self):
         if self.closed:
@@ -194,19 +154,13 @@ class TensorRTEngine:
         self.closed = True
 
         for entry in self.inputs.values():
-            self.cudart.cudaFree(
-                entry["device"]
-            )
+            self.cudart.cudaFree(entry["device"])
 
         for entry in self.outputs.values():
-            self.cudart.cudaFree(
-                entry["device"]
-            )
+            self.cudart.cudaFree(entry["device"])
 
         if self.stream is not None:
-            self.cudart.cudaStreamDestroy(
-                self.stream
-            )
+            self.cudart.cudaStreamDestroy(self.stream)
 
         self.inputs = {}
         self.outputs = {}
@@ -219,13 +173,10 @@ class TensorRTYOLO:
         self,
         engine_path,
     ):
-        self.engine = TensorRTEngine(
-            engine_path
-        )
+        self.engine = TensorRTEngine(engine_path)
 
         print(
-            f"TensorRT YOLO loaded: "
-            f"{engine_path}",
+            f"TensorRT YOLO loaded: {engine_path}",
             flush=True,
         )
 
@@ -246,12 +197,7 @@ class TensorRTYOLO:
             cv2.COLOR_BGR2RGB,
         )
 
-        image = (
-            image.astype(
-                np.float32
-            )
-            / 255.0
-        )
+        image = image.astype(np.float32) / 255.0
 
         image = np.transpose(
             image,
@@ -284,9 +230,7 @@ class TensorRTYuNet:
         self,
         engine_path,
     ):
-        self.engine = TensorRTEngine(
-            engine_path
-        )
+        self.engine = TensorRTEngine(engine_path)
 
         self.strides = [
             8,
@@ -298,8 +242,7 @@ class TensorRTYuNet:
         self.nms_threshold = 0.30
 
         print(
-            f"TensorRT YuNet loaded: "
-            f"{engine_path}",
+            f"TensorRT YuNet loaded: {engine_path}",
             flush=True,
         )
 
@@ -307,9 +250,7 @@ class TensorRTYuNet:
         self,
         frame,
     ):
-        original_height, original_width = (
-            frame.shape[:2]
-        )
+        original_height, original_width = frame.shape[:2]
 
         image = cv2.resize(
             frame,
@@ -317,9 +258,7 @@ class TensorRTYuNet:
                 self.INPUT_SIZE,
                 self.INPUT_SIZE,
             ),
-        ).astype(
-            np.float32
-        )
+        ).astype(np.float32)
 
         image = np.transpose(
             image,
@@ -344,21 +283,13 @@ class TensorRTYuNet:
         detections = []
 
         for stride in self.strides:
-            cls = outputs[
-                f"cls_{stride}"
-            ][0, :, 0]
+            cls = outputs[f"cls_{stride}"][0, :, 0]
 
-            obj = outputs[
-                f"obj_{stride}"
-            ][0, :, 0]
+            obj = outputs[f"obj_{stride}"][0, :, 0]
 
-            bbox = outputs[
-                f"bbox_{stride}"
-            ][0]
+            bbox = outputs[f"bbox_{stride}"][0]
 
-            kps_output = outputs.get(
-                f"kps_{stride}"
-            )
+            kps_output = outputs.get(f"kps_{stride}")
 
             if kps_output is not None:
                 kps = kps_output[0]
@@ -373,48 +304,22 @@ class TensorRTYuNet:
                 )
             )
 
-            indexes = np.where(
-                scores
-                >= self.score_threshold
-            )[0]
+            indexes = np.where(scores >= self.score_threshold)[0]
 
-            feature_width = (
-                self.INPUT_SIZE
-                // stride
-            )
+            feature_width = self.INPUT_SIZE // stride
 
             for index in indexes:
-                grid_x = (
-                    index
-                    % feature_width
-                )
+                grid_x = index % feature_width
 
-                grid_y = (
-                    index
-                    // feature_width
-                )
+                grid_y = index // feature_width
 
-                anchor_x = (
-                    grid_x
-                    * stride
-                )
+                anchor_x = grid_x * stride
 
-                anchor_y = (
-                    grid_y
-                    * stride
-                )
+                anchor_y = grid_y * stride
 
-                center_x = (
-                    bbox[index, 0]
-                    * stride
-                    + anchor_x
-                )
+                center_x = bbox[index, 0] * stride + anchor_x
 
-                center_y = (
-                    bbox[index, 1]
-                    * stride
-                    + anchor_y
-                )
+                center_y = bbox[index, 1] * stride + anchor_y
 
                 width = (
                     math.exp(
@@ -442,11 +347,7 @@ class TensorRTYuNet:
 
                 landmarks = []
 
-                if (
-                    kps is not None
-                    and len(kps.shape) >= 2
-                    and kps.shape[1] >= 10
-                ):
+                if kps is not None and len(kps.shape) >= 2 and kps.shape[1] >= 10:
                     for point_index in range(5):
                         point_x = (
                             float(
@@ -480,47 +381,27 @@ class TensorRTYuNet:
                 detections.append(
                     {
                         "box": [
-                            float(
-                                center_x
-                                - width / 2
-                            ),
-                            float(
-                                center_y
-                                - height / 2
-                            ),
-                            float(
-                                center_x
-                                + width / 2
-                            ),
-                            float(
-                                center_y
-                                + height / 2
-                            ),
+                            float(center_x - width / 2),
+                            float(center_y - height / 2),
+                            float(center_x + width / 2),
+                            float(center_y + height / 2),
                         ],
-                        "score": float(
-                            scores[index]
-                        ),
+                        "score": float(scores[index]),
                         "landmarks": landmarks,
                     }
                 )
 
-        detections = self._nms(
-            detections
-        )
+        detections = self._nms(detections)
 
         result = []
 
         for detection in detections:
-            x1, y1, x2, y2 = (
-                detection["box"]
-            )
+            x1, y1, x2, y2 = detection["box"]
 
             x1 = max(
                 0.0,
                 min(
-                    float(
-                        self.INPUT_SIZE
-                    ),
+                    float(self.INPUT_SIZE),
                     x1,
                 ),
             )
@@ -528,9 +409,7 @@ class TensorRTYuNet:
             y1 = max(
                 0.0,
                 min(
-                    float(
-                        self.INPUT_SIZE
-                    ),
+                    float(self.INPUT_SIZE),
                     y1,
                 ),
             )
@@ -538,9 +417,7 @@ class TensorRTYuNet:
             x2 = max(
                 0.0,
                 min(
-                    float(
-                        self.INPUT_SIZE
-                    ),
+                    float(self.INPUT_SIZE),
                     x2,
                 ),
             )
@@ -548,50 +425,29 @@ class TensorRTYuNet:
             y2 = max(
                 0.0,
                 min(
-                    float(
-                        self.INPUT_SIZE
-                    ),
+                    float(self.INPUT_SIZE),
                     y2,
                 ),
             )
 
-            nx1 = (
-                x1
-                / self.INPUT_SIZE
-            )
+            nx1 = x1 / self.INPUT_SIZE
 
-            ny1 = (
-                y1
-                / self.INPUT_SIZE
-            )
+            ny1 = y1 / self.INPUT_SIZE
 
-            nx2 = (
-                x2
-                / self.INPUT_SIZE
-            )
+            nx2 = x2 / self.INPUT_SIZE
 
-            ny2 = (
-                y2
-                / self.INPUT_SIZE
-            )
+            ny2 = y2 / self.INPUT_SIZE
 
-            cx = (
-                nx1 + nx2
-            ) / 2.0
+            cx = (nx1 + nx2) / 2.0
 
-            cy = (
-                ny1 + ny2
-            ) / 2.0
+            cy = (ny1 + ny2) / 2.0
 
-            area = (
-                max(
-                    0.0,
-                    nx2 - nx1,
-                )
-                * max(
-                    0.0,
-                    ny2 - ny1,
-                )
+            area = max(
+                0.0,
+                nx2 - nx1,
+            ) * max(
+                0.0,
+                ny2 - ny1,
             )
 
             normalized_landmarks = []
@@ -607,8 +463,7 @@ class TensorRTYuNet:
                                 0.0,
                                 min(
                                     1.0,
-                                    float(point[0])
-                                    / self.INPUT_SIZE,
+                                    float(point[0]) / self.INPUT_SIZE,
                                 ),
                             ),
                             4,
@@ -618,8 +473,7 @@ class TensorRTYuNet:
                                 0.0,
                                 min(
                                     1.0,
-                                    float(point[1])
-                                    / self.INPUT_SIZE,
+                                    float(point[1]) / self.INPUT_SIZE,
                                 ),
                             ),
                             4,
@@ -665,9 +519,7 @@ class TensorRTYuNet:
                         area,
                         5,
                     ),
-                    "landmarks": (
-                        normalized_landmarks
-                    ),
+                    "landmarks": (normalized_landmarks),
                 }
             )
 
@@ -701,52 +553,36 @@ class TensorRTYuNet:
             by2,
         )
 
-        intersection = (
-            max(
-                0.0,
-                ix2 - ix1,
-            )
-            * max(
-                0.0,
-                iy2 - iy1,
-            )
+        intersection = max(
+            0.0,
+            ix2 - ix1,
+        ) * max(
+            0.0,
+            iy2 - iy1,
         )
 
-        area_a = (
-            max(
-                0.0,
-                ax2 - ax1,
-            )
-            * max(
-                0.0,
-                ay2 - ay1,
-            )
+        area_a = max(
+            0.0,
+            ax2 - ax1,
+        ) * max(
+            0.0,
+            ay2 - ay1,
         )
 
-        area_b = (
-            max(
-                0.0,
-                bx2 - bx1,
-            )
-            * max(
-                0.0,
-                by2 - by1,
-            )
+        area_b = max(
+            0.0,
+            bx2 - bx1,
+        ) * max(
+            0.0,
+            by2 - by1,
         )
 
-        union = (
-            area_a
-            + area_b
-            - intersection
-        )
+        union = area_a + area_b - intersection
 
         if union <= 0.0:
             return 0.0
 
-        return (
-            intersection
-            / union
-        )
+        return intersection / union
 
     def _nms(
         self,
@@ -754,9 +590,7 @@ class TensorRTYuNet:
     ):
         ordered = sorted(
             detections,
-            key=lambda item: item[
-                "score"
-            ],
+            key=lambda item: item["score"],
             reverse=True,
         )
 
@@ -777,9 +611,7 @@ class TensorRTYuNet:
                     break
 
             if keep:
-                selected.append(
-                    detection
-                )
+                selected.append(detection)
 
         return selected[:20]
 
@@ -812,37 +644,20 @@ class HaarFaceDetector:
         cascade_path = None
 
         for candidate in candidates:
-            if os.path.isfile(
-                candidate
-            ):
-                cascade_path = (
-                    candidate
-                )
+            if os.path.isfile(candidate):
+                cascade_path = candidate
                 break
 
         if cascade_path is None:
-            raise RuntimeError(
-                "OpenCV Haar cascade "
-                "not found"
-            )
+            raise RuntimeError("OpenCV Haar cascade not found")
 
-        self.detector = (
-            cv2.CascadeClassifier(
-                cascade_path
-            )
-        )
+        self.detector = cv2.CascadeClassifier(cascade_path)
 
         if self.detector.empty():
-            raise RuntimeError(
-                f"Could not load "
-                f"Haar cascade: "
-                f"{cascade_path}"
-            )
+            raise RuntimeError(f"Could not load Haar cascade: {cascade_path}")
 
         print(
-            f"Vision fallback: "
-            f"OpenCV Haar CPU "
-            f"({cascade_path})",
+            f"Vision fallback: OpenCV Haar CPU ({cascade_path})",
             flush=True,
         )
 
@@ -855,23 +670,16 @@ class HaarFaceDetector:
             cv2.COLOR_BGR2GRAY,
         )
 
-        gray = cv2.equalizeHist(
-            gray
+        gray = cv2.equalizeHist(gray)
+
+        faces = self.detector.detectMultiScale(
+            gray,
+            scaleFactor=1.08,
+            minNeighbors=4,
+            minSize=(50, 50),
         )
 
-        faces = (
-            self.detector
-            .detectMultiScale(
-                gray,
-                scaleFactor=1.08,
-                minNeighbors=4,
-                minSize=(50, 50),
-            )
-        )
-
-        height, width = (
-            frame.shape[:2]
-        )
+        height, width = frame.shape[:2]
 
         result = []
 
@@ -879,32 +687,20 @@ class HaarFaceDetector:
             nx1 = x / width
             ny1 = y / height
 
-            nx2 = (
-                x + w
-            ) / width
+            nx2 = (x + w) / width
 
-            ny2 = (
-                y + h
-            ) / height
+            ny2 = (y + h) / height
 
             result.append(
                 {
                     "confidence": 0.60,
                     "center": [
                         round(
-                            (
-                                nx1
-                                + nx2
-                            )
-                            / 2.0,
+                            (nx1 + nx2) / 2.0,
                             4,
                         ),
                         round(
-                            (
-                                ny1
-                                + ny2
-                            )
-                            / 2.0,
+                            (ny1 + ny2) / 2.0,
                             4,
                         ),
                     ],
@@ -957,13 +753,7 @@ class Vision:
     def __init__(self):
         root = os.getenv(
             "JETSON_FRIEND_ROOT",
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.abspath(
-                        __file__
-                    )
-                )
-            ),
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         )
 
         self.camera_index = int(
@@ -1003,9 +793,7 @@ class Vision:
             ),
         )
 
-        self.labels = self._labels(
-            labels_path
-        )
+        self.labels = self._labels(labels_path)
 
         self.face_interval_active = float(
             os.getenv(
@@ -1063,17 +851,11 @@ class Vision:
             )
         )
 
-        self.scene_lock = (
-            threading.RLock()
-        )
+        self.scene_lock = threading.RLock()
 
-        self.frame_lock = (
-            threading.RLock()
-        )
+        self.frame_lock = threading.RLock()
 
-        self.attention_lock = (
-            threading.RLock()
-        )
+        self.attention_lock = threading.RLock()
 
         self.scene = {
             "faces": 0,
@@ -1082,9 +864,7 @@ class Vision:
             "motion": 0.0,
             "person_present": False,
             "updated": 0.0,
-            "vision_backend": (
-                "not started"
-            ),
+            "vision_backend": ("not started"),
         }
 
         self.gaze = (
@@ -1096,6 +876,16 @@ class Vision:
         self.backend = "not started"
 
         self.latest_frame = None
+        self.stats = {
+            "frames": 0,
+            "face_calls": 0,
+            "object_calls": 0,
+            "face_ms": 0.0,
+            "object_ms": 0.0,
+        }
+        self.stats_started = None
+        self.face_tracks = FaceTracks()
+        self.face_samples = {}
         self.latest_face_crop = None
         self.latest_face_meta = None
 
@@ -1115,9 +905,7 @@ class Vision:
                 "r",
                 encoding="utf-8",
             ) as file:
-                data = yaml.safe_load(
-                    file
-                )
+                data = yaml.safe_load(file)
 
             names = data.get(
                 "names",
@@ -1130,16 +918,11 @@ class Vision:
             ):
                 return names
 
-            return [
-                names[index]
-                for index
-                in sorted(names)
-            ]
+            return [names[index] for index in sorted(names)]
 
         except Exception as exc:
             print(
-                f"Could not load labels: "
-                f"{exc}",
+                f"Could not load labels: {exc}",
                 flush=True,
             )
 
@@ -1186,19 +969,13 @@ if engine is None:
                 timeout=15,
             )
 
-            if (
-                process.returncode
-                == 0
-            ):
+            if process.returncode == 0:
                 return True
 
             details = (
                 process.stderr.strip()
                 or process.stdout.strip()
-                or (
-                    f"exit code "
-                    f"{process.returncode}"
-                )
+                or (f"exit code {process.returncode}")
             )
 
             print(
@@ -1212,9 +989,7 @@ if engine is None:
 
         except Exception as exc:
             print(
-                "TensorRT/CUDA preflight "
-                "error; using CPU face "
-                f"tracking: {exc}",
+                f"TensorRT/CUDA preflight error; using CPU face tracking: {exc}",
                 flush=True,
             )
 
@@ -1265,18 +1040,13 @@ if engine is None:
         self,
     ):
         with self.attention_lock:
-            return (
-                time.monotonic()
-                < self.visual_attention_until
-            )
+            return time.monotonic() < self.visual_attention_until
 
     def get_scene(
         self,
     ):
         with self.scene_lock:
-            return dict(
-                self.scene
-            )
+            return dict(self.scene)
 
     def run(
         self,
@@ -1288,58 +1058,43 @@ if engine is None:
         yolo = None
         face_detector = None
 
-        use_tensorrt = (
-            self._tensorrt_preflight()
-        )
+        use_tensorrt = self._tensorrt_preflight()
 
         if use_tensorrt:
             try:
-                yolo = TensorRTYOLO(
-                    self.object_model
-                )
+                yolo = TensorRTYOLO(self.object_model)
 
-                face_detector = (
-                    TensorRTYuNet(
-                        self.face_model
-                    )
-                )
+                face_detector = TensorRTYuNet(self.face_model)
 
-                self.backend = (
-                    "TensorRT"
-                )
+                self.backend = "TensorRT"
 
             except Exception as exc:
                 print(
-                    "TensorRT "
-                    "initialization failed: "
-                    f"{exc}",
+                    f"TensorRT initialization failed: {exc}",
                     flush=True,
                 )
 
+                if yolo is not None:
+                    yolo.close()
+                if face_detector is not None:
+                    face_detector.close()
                 yolo = None
                 face_detector = None
                 use_tensorrt = False
 
         if not use_tensorrt:
             try:
-                face_detector = (
-                    HaarFaceDetector()
-                )
+                face_detector = HaarFaceDetector()
 
-                self.backend = (
-                    "OpenCV Haar CPU"
-                )
+                self.backend = "OpenCV Haar CPU"
 
             except Exception as exc:
                 print(
-                    "CPU face fallback "
-                    f"failed: {exc}",
+                    f"CPU face fallback failed: {exc}",
                     flush=True,
                 )
 
-                self.backend = (
-                    "camera only"
-                )
+                self.backend = "camera only"
 
         last_objects = 0.0
         last_faces = 0.0
@@ -1353,13 +1108,8 @@ if engine is None:
 
         try:
             while self.running:
-                while (
-                    self.running
-                    and cap is None
-                ):
-                    cap = (
-                        self._open_camera()
-                    )
+                while self.running and cap is None:
+                    cap = self._open_camera()
 
                     if cap is None:
                         if not camera_error_printed:
@@ -1371,26 +1121,17 @@ if engine is None:
                                 flush=True,
                             )
 
-                            camera_error_printed = (
-                                True
-                            )
+                            camera_error_printed = True
 
-                        time.sleep(
-                            1.0
-                        )
+                        time.sleep(1.0)
 
                     else:
-                        camera_error_printed = (
-                            False
-                        )
+                        camera_error_printed = False
 
-                        self.previous_motion_frame = (
-                            None
-                        )
+                        self.previous_motion_frame = None
 
                         print(
-                            "Camera opened: "
-                            f"{self.camera_index}",
+                            f"Camera opened: {self.camera_index}",
                             flush=True,
                         )
 
@@ -1399,60 +1140,48 @@ if engine is None:
 
                 ok, frame = cap.read()
 
-                while (
-                    self.running
-                    and not ok
-                ):
+                while self.running and not ok:
+                    with self.frame_lock:
+                        self.face_samples = {}
+                        self.latest_frame = None
+                    with self.scene_lock:
+                        self.scene = {
+                            "faces": 0,
+                            "face_tracks": [],
+                            "objects": [],
+                            "updated": 0.0,
+                            "person_present": False,
+                        }
                     cap.release()
                     cap = None
 
-                    time.sleep(
-                        0.2
-                    )
+                    time.sleep(0.2)
 
-                    while (
-                        self.running
-                        and cap is None
-                    ):
-                        cap = (
-                            self._open_camera()
-                        )
+                    while self.running and cap is None:
+                        cap = self._open_camera()
 
                         if cap is None:
                             if not camera_error_printed:
                                 print(
-                                    "Camera connection "
-                                    "lost. Retrying...",
+                                    "Camera connection lost. Retrying...",
                                     flush=True,
                                 )
 
-                                camera_error_printed = (
-                                    True
-                                )
+                                camera_error_printed = True
 
-                            time.sleep(
-                                1.0
-                            )
+                            time.sleep(1.0)
 
                         else:
-                            camera_error_printed = (
-                                False
-                            )
+                            camera_error_printed = False
 
-                            self.previous_motion_frame = (
-                                None
-                            )
+                            self.previous_motion_frame = None
 
                             print(
-                                "Camera reopened: "
-                                f"{self.camera_index}",
+                                f"Camera reopened: {self.camera_index}",
                                 flush=True,
                             )
 
-                    if (
-                        self.running
-                        and cap is not None
-                    ):
+                    if self.running and cap is not None:
                         ok, frame = cap.read()
 
                 if not self.running:
@@ -1460,74 +1189,48 @@ if engine is None:
 
                 now = time.monotonic()
                 wall_now = time.time()
+                if self.stats_started is None:
+                    self.stats_started = now
+                self.stats["frames"] += 1
 
                 with self.frame_lock:
-                    self.latest_frame = (
-                        frame.copy()
-                    )
+                    self.latest_frame = frame.copy()
 
-                if (
-                    now
-                    - last_motion
-                    >= self.motion_interval
-                ):
-                    motion_score = (
-                        self._motion_score(
-                            frame
-                        )
-                    )
+                if now - last_motion >= self.motion_interval:
+                    motion_score = self._motion_score(frame)
 
                     last_motion = now
 
                 had_recent_person = (
-                    wall_now
-                    - self.last_person_seen
-                    <= self.presence_hold
+                    wall_now - self.last_person_seen <= self.presence_hold
                 )
 
-                attention = (
-                    self._visual_attention_active()
-                )
+                attention = self._visual_attention_active()
 
-                activity = (
-                    motion_score
-                    >= self.motion_threshold
-                )
+                activity = motion_score >= self.motion_threshold
 
-                active_scene = (
-                    had_recent_person
-                    or activity
-                    or attention
-                )
+                active_scene = had_recent_person or activity or attention
 
                 if active_scene:
-                    face_interval = (
-                        self.face_interval_active
-                    )
+                    face_interval = self.face_interval_active
 
                 else:
-                    face_interval = (
-                        self.face_interval_idle
-                    )
+                    face_interval = self.face_interval_idle
 
-                if (
-                    face_detector
-                    is not None
-                    and now
-                    - last_faces
-                    >= face_interval
-                ):
+                if face_detector is not None and now - last_faces >= face_interval:
                     try:
-                        face_items = (
-                            face_detector.infer(
-                                frame
-                            )
+                        inference_start = time.monotonic()
+                        face_items = self.face_tracks.update(
+                            face_detector.infer(frame), now
+                        )
+                        self.stats["face_calls"] += 1
+                        self.stats["face_ms"] = round(
+                            (time.monotonic() - inference_start) * 1000, 2
                         )
 
                     except Exception as exc:
                         print(
-                            "Face inference "
-                            f"warning: {exc}",
+                            f"Face inference warning: {exc}",
                             flush=True,
                         )
 
@@ -1536,66 +1239,40 @@ if engine is None:
                     last_faces = now
 
                     if face_items:
-                        self.last_person_seen = (
-                            wall_now
-                        )
+                        self.last_person_seen = wall_now
 
-                person_present = (
-                    bool(face_items)
-                    or (
-                        wall_now
-                        - self.last_person_seen
-                        <= self.presence_hold
-                    )
+                person_present = bool(face_items) or (
+                    wall_now - self.last_person_seen <= self.presence_hold
                 )
 
-                if (
-                    person_present
-                    or activity
-                    or attention
-                ):
-                    object_interval = (
-                        self.object_interval_active
-                    )
+                if person_present or activity or attention:
+                    object_interval = self.object_interval_active
 
                 else:
-                    object_interval = (
-                        self.object_interval_idle
-                    )
+                    object_interval = self.object_interval_idle
 
                 should_run_objects = (
                     yolo is not None
-                    and now
-                    - last_objects
-                    >= object_interval
-                    and (
-                        attention
-                        or activity
-                        or person_present
-                        or not objects
-                    )
+                    and now - last_objects >= object_interval
+                    and (attention or activity or person_present or not objects)
                 )
 
                 if should_run_objects:
                     try:
-                        output = yolo.infer(
-                            frame
+                        inference_start = time.monotonic()
+                        output = yolo.infer(frame)
+                        self.stats["object_calls"] += 1
+                        self.stats["object_ms"] = round(
+                            (time.monotonic() - inference_start) * 1000, 2
                         )
 
-                        objects = (
-                            self._detect_objects(
-                                output
-                            )
-                        )
+                        objects = self._detect_objects(output)
 
-                        self.last_object_update = (
-                            wall_now
-                        )
+                        self.last_object_update = wall_now
 
                     except Exception as exc:
                         print(
-                            "YOLO inference "
-                            f"warning: {exc}",
+                            f"YOLO inference warning: {exc}",
                             flush=True,
                         )
 
@@ -1605,24 +1282,22 @@ if engine is None:
                     objects
                     and not person_present
                     and not activity
-                    and (
-                        wall_now
-                        - self.last_object_update
-                        > self.object_hold
-                    )
+                    and (wall_now - self.last_object_update > self.object_hold)
                 ):
                     objects = []
 
-                selected = (
-                    self._select_face(
-                        face_items
-                    )
-                )
+                selected = self._select_face(face_items)
 
-                self._cache_face(
-                    frame,
-                    selected,
-                )
+                if face_items and face_items[0].get("detected_at") == now:
+                    with self.frame_lock:
+                        self.face_samples = {}
+                    for item in face_items:
+                        self._cache_face(frame, item)
+                elif not face_items:
+                    with self.frame_lock:
+                        self.face_samples = {}
+                        self.latest_face_crop = None
+                        self.latest_face_meta = None
 
                 self._update_gaze(
                     selected,
@@ -1631,30 +1306,21 @@ if engine is None:
 
                 with self.scene_lock:
                     self.scene = {
-                        "faces": len(
-                            face_items
-                        ),
-                        "objects": list(
-                            objects
-                        ),
-                        "selected_face": (
-                            selected
-                        ),
+                        "faces": len(face_items),
+                        "objects": list(objects),
+                        "selected_face": selected,
+                        "face_tracks": [dict(item) for item in face_items],
                         "motion": round(
-                            float(
-                                motion_score
-                            ),
+                            float(motion_score),
                             4,
                         ),
-                        "person_present": (
-                            bool(
-                                person_present
-                            )
-                        ),
+                        "person_present": (bool(person_present)),
+                        "metrics": {
+                            **self.stats,
+                            "elapsed_sec": now - self.stats_started,
+                        },
                         "updated": wall_now,
-                        "vision_backend": (
-                            self.backend
-                        ),
+                        "vision_backend": (self.backend),
                     }
 
         except Exception as exc:
@@ -1675,23 +1341,17 @@ if engine is None:
 
                 except Exception as exc:
                     print(
-                        "YOLO shutdown "
-                        f"warning: {exc}",
+                        f"YOLO shutdown warning: {exc}",
                         flush=True,
                     )
 
-            if (
-                use_tensorrt
-                and face_detector
-                is not None
-            ):
+            if use_tensorrt and face_detector is not None:
                 try:
                     face_detector.close()
 
                 except Exception as exc:
                     print(
-                        "YuNet shutdown "
-                        f"warning: {exc}",
+                        f"YuNet shutdown warning: {exc}",
                         flush=True,
                     )
 
@@ -1702,9 +1362,7 @@ if engine is None:
         small = cv2.resize(
             frame,
             (160, 90),
-            interpolation=(
-                cv2.INTER_AREA
-            ),
+            interpolation=(cv2.INTER_AREA),
         )
 
         gray = cv2.cvtColor(
@@ -1718,13 +1376,9 @@ if engine is None:
             0,
         )
 
-        previous = (
-            self.previous_motion_frame
-        )
+        previous = self.previous_motion_frame
 
-        self.previous_motion_frame = (
-            gray
-        )
+        self.previous_motion_frame = gray
 
         if previous is None:
             return 0.0
@@ -1734,16 +1388,9 @@ if engine is None:
             gray,
         )
 
-        changed = np.count_nonzero(
-            difference > 18
-        )
+        changed = np.count_nonzero(difference > 18)
 
-        return (
-            changed
-            / float(
-                difference.size
-            )
-        )
+        return changed / float(difference.size)
 
     @staticmethod
     def _select_face(
@@ -1775,27 +1422,13 @@ if engine is None:
                 ],
             )
 
-            dx = (
-                float(
-                    center[0]
-                )
-                - 0.5
-            )
+            dx = float(center[0]) - 0.5
 
-            dy = (
-                float(
-                    center[1]
-                )
-                - 0.5
-            )
+            dy = float(center[1]) - 0.5
 
             center_bonus = max(
                 0.0,
-                1.0
-                - math.sqrt(
-                    dx * dx
-                    + dy * dy
-                ),
+                1.0 - math.sqrt(dx * dx + dy * dy),
             )
 
             return (
@@ -1804,8 +1437,7 @@ if engine is None:
                     area * 8.0,
                     1.0,
                 )
-                + center_bonus
-                * 0.25
+                + center_bonus * 0.25
             )
 
         return max(
@@ -1813,246 +1445,83 @@ if engine is None:
             key=score,
         )
 
-    def _cache_face(
-        self,
-        frame,
-        selected,
-    ):
+    def _cache_face(self, frame, selected):
         if selected is None:
             return
-
-        box = selected.get(
-            "box"
-        )
-
-        if (
-            not box
-            or len(box) != 4
-        ):
+        box = selected.get("box")
+        if not box or len(box) != 4:
             return
-
-        height, width = (
-            frame.shape[:2]
-        )
-
-        x1 = max(
-            0,
-            min(
-                width - 1,
-                int(
-                    box[0]
-                    * width
-                ),
-            ),
-        )
-
-        y1 = max(
-            0,
-            min(
-                height - 1,
-                int(
-                    box[1]
-                    * height
-                ),
-            ),
-        )
-
-        x2 = max(
-            1,
-            min(
-                width,
-                int(
-                    box[2]
-                    * width
-                ),
-            ),
-        )
-
-        y2 = max(
-            1,
-            min(
-                height,
-                int(
-                    box[3]
-                    * height
-                ),
-            ),
-        )
-
-        if (
-            x2 <= x1
-            or y2 <= y1
-        ):
-            return
-
-        crop = frame[
-            y1:y2,
-            x1:x2,
-        ]
-
+        height, width = frame.shape[:2]
+        x1, y1 = max(0, int(box[0] * width)), max(0, int(box[1] * height))
+        x2, y2 = min(width, int(box[2] * width)), min(height, int(box[3] * height))
+        crop = frame[y1:y2, x1:x2]
         if crop.size == 0:
             return
-
-        quality = (
-            self._face_quality(
-                crop,
-                selected,
-            )
-        )
-
+        quality = self._face_quality(crop, selected)
+        landmarks = selected.get("landmarks", [])
+        local_points = [[x * width - x1, y * height - y1] for x, y in landmarks]
+        meta = {
+            **selected,
+            "quality": quality,
+            "captured": time.time(),
+            "local_landmarks": local_points,
+        }
         with self.frame_lock:
-            self.latest_face_crop = (
-                crop.copy()
-            )
-
-            self.latest_face_meta = {
-                **selected,
-                "quality": quality,
-                "captured": (
-                    time.time()
-                ),
-            }
+            self.face_samples[selected["track_id"]] = (crop.copy(), meta)
+            self.latest_face_crop, self.latest_face_meta = crop.copy(), meta
 
     @staticmethod
-    def _face_quality(
-        crop,
-        selected,
-    ):
-        if crop.size == 0:
+    def _face_quality(crop, selected):
+        if crop.size == 0 or min(crop.shape[:2]) < 64:
             return 0.0
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        blur = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        brightness = float(np.mean(gray))
+        landmarks = selected.get("landmarks", [])
+        # No recognition/enrollment from Haar boxes without alignment landmarks.
+        if (
+            len(landmarks) != 5
+            or blur < 45
+            or not 40 <= brightness <= 215
+            or selected.get("confidence", 0) < 0.8
+        ):
+            return 0.0
+        eyes = np.asarray(landmarks[:2], dtype=float)
+        nose = np.asarray(landmarks[2], dtype=float)
+        eye_distance = float(np.linalg.norm(eyes[0] - eyes[1]))
+        if (
+            eye_distance < 0.01
+            or abs(float(eyes[0][1] - eyes[1][1])) > eye_distance * 0.35
+        ):
+            return 0.0
+        if abs(float(nose[0] - np.mean(eyes[:, 0]))) > eye_distance * 0.4:
+            return 0.0
+        return round(min(1.0, blur / 180) * 0.35 + selected["confidence"] * 0.65, 3)
 
-        gray = cv2.cvtColor(
-            crop,
-            cv2.COLOR_BGR2GRAY,
-        )
-
-        blur = float(
-            cv2.Laplacian(
-                gray,
-                cv2.CV_64F,
-            ).var()
-        )
-
-        brightness = float(
-            np.mean(
-                gray
-            )
-        )
-
-        area = float(
-            selected.get(
-                "area",
-                0.0,
-            )
-        )
-
-        confidence = float(
-            selected.get(
-                "confidence",
-                0.0,
-            )
-        )
-
-        blur_score = min(
-            1.0,
-            blur / 180.0,
-        )
-
-        area_score = min(
-            1.0,
-            area / 0.06,
-        )
-
-        brightness_score = max(
-            0.0,
-            1.0
-            - abs(
-                brightness
-                - 128.0
-            )
-            / 128.0,
-        )
-
-        score = (
-            confidence * 0.40
-            + blur_score * 0.25
-            + area_score * 0.20
-            + brightness_score
-            * 0.15
-        )
-
-        return round(
-            max(
-                0.0,
-                min(
-                    1.0,
-                    score,
-                ),
-            ),
-            3,
-        )
-
-    def get_face_crop(
-        self,
-        min_quality=0.0,
-    ):
-        """
-        Returns the latest selected
-        face crop and metadata.
-
-        The future identity.py module
-        will use this for recognition.
-        """
-
+    def get_face_crop(self, min_quality=0.0, track_id=None):
         with self.frame_lock:
-            if (
-                self.latest_face_crop
-                is None
-                or self.latest_face_meta
-                is None
-            ):
-                return (
-                    None,
-                    None,
-                )
-
-            meta = dict(
-                self.latest_face_meta
-            )
-
-            if (
-                float(
-                    meta.get(
-                        "quality",
-                        0.0,
-                    )
-                )
-                < float(
-                    min_quality
-                )
-            ):
-                return (
-                    None,
-                    meta,
-                )
-
-            return (
-                self.latest_face_crop.copy(),
-                meta,
-            )
+            samples = self.face_samples
+            if track_id is None:
+                if len(samples) != 1:
+                    return None, None
+                track_id = next(iter(samples))
+            sample = samples.get(track_id)
+            if sample is None:
+                return None, None
+            crop, meta = sample
+            if time.time() - meta["captured"] > 1.0:
+                return None, None
+            if meta["quality"] < min_quality:
+                return None, dict(meta)
+            return crop.copy(), dict(meta)
 
     def snapshot_jpeg(
         self,
         quality=85,
     ):
         with self.frame_lock:
-            if (
-                self.latest_frame
-                is not None
-            ):
-                frame = (
-                    self.latest_frame.copy()
-                )
+            if self.latest_frame is not None:
+                frame = self.latest_frame.copy()
             else:
                 frame = None
 
@@ -2063,12 +1532,8 @@ if engine is None:
             ".jpg",
             frame,
             [
-                int(
-                    cv2.IMWRITE_JPEG_QUALITY
-                ),
-                int(
-                    quality
-                ),
+                int(cv2.IMWRITE_JPEG_QUALITY),
+                int(quality),
             ],
         )
 
@@ -2083,86 +1548,51 @@ if engine is None:
         face,
     ):
         if selected is not None:
-            camera_x = (
-                selected["center"][0]
-                - 0.5
-            ) * 2.0
+            camera_x = (selected["center"][0] - 0.5) * 2.0
 
-            camera_y = (
-                selected["center"][1]
-                - 0.5
-            ) * 2.0
+            camera_y = (selected["center"][1] - 0.5) * 2.0
 
             gx = -camera_x
             gy = camera_y
 
             self.gaze = (
-                self.gaze[0]
-                * 0.65
-                + gx * 0.35,
-                self.gaze[1]
-                * 0.65
-                + gy * 0.35,
+                self.gaze[0] * 0.65 + gx * 0.35,
+                self.gaze[1] * 0.65 + gy * 0.35,
             )
 
         else:
             self.gaze = (
-                self.gaze[0]
-                * 0.94,
-                self.gaze[1]
-                * 0.94,
+                self.gaze[0] * 0.94,
+                self.gaze[1] * 0.94,
             )
 
-        face.set_gaze(
-            *self.gaze
-        )
+        face.set_gaze(*self.gaze)
 
     def _detect_objects(
         self,
         output,
     ):
-        predictions = (
-            output[0].T
-        )
+        predictions = output[0].T
 
         found = {}
 
         for row in predictions:
             scores = row[4:]
 
-            cls = int(
-                np.argmax(
-                    scores
-                )
-            )
+            cls = int(np.argmax(scores))
 
-            confidence = float(
-                scores[cls]
-            )
+            confidence = float(scores[cls])
 
-            if (
-                confidence > 0.45
-                and cls
-                < len(
-                    self.labels
-                )
-            ):
-                label = (
-                    self.labels[cls]
-                )
+            if confidence > 0.45 and cls < len(self.labels):
+                label = self.labels[cls]
 
                 previous = found.get(
                     label,
                     0.0,
                 )
 
-                if (
-                    confidence
-                    > previous
-                ):
-                    found[label] = (
-                        confidence
-                    )
+                if confidence > previous:
+                    found[label] = confidence
 
         ordered = sorted(
             found.items(),
@@ -2170,11 +1600,7 @@ if engine is None:
             reverse=True,
         )
 
-        return [
-            label
-            for label, confidence
-            in ordered[:8]
-        ]
+        return [label for label, confidence in ordered[:8]]
 
     def stop(
         self,

@@ -1,0 +1,56 @@
+{
+  "turns": [
+    {
+      "turn_id": "257afb19-fb0c-47f6-99f7-1be814693967",
+      "source": "synthetic_text",
+      "llm_request_ms": 4.43,
+      "llm_first_token_ms": 227.7,
+      "first_phrase_ms": 423.59,
+      "tts_ms": 182.26,
+      "tts_ready_ms": 5599.93,
+      "playback_launch_ms": 616.89,
+      "llm_usage": {
+        "completion_tokens": 28,
+        "prompt_tokens": 97,
+        "total_tokens": 125,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "llm_complete_ms": 1829.8,
+      "end_to_end_ms": 6965.55,
+      "answer": [
+        "Hello there!",
+        "I'm just a small local companion, but I'm here and ready to help.",
+        "How can I assist you today?"
+      ],
+      "errors": []
+    },
+    {
+      "turn_id": "b7677d4f-98bb-47b0-b604-127bc6f31606",
+      "source": "synthetic_text",
+      "llm_request_ms": 0.7,
+      "llm_first_token_ms": 110.61,
+      "first_phrase_ms": 502.0,
+      "tts_ms": 170.8,
+      "tts_ready_ms": 1777.56,
+      "playback_launch_ms": 678.25,
+      "llm_usage": {
+        "completion_tokens": 21,
+        "prompt_tokens": 100,
+        "total_tokens": 121,
+        "prompt_tokens_details": {
+          "cached_tokens": 81
+        }
+      },
+      "llm_complete_ms": 1334.72,
+      "end_to_end_ms": 4306.43,
+      "answer": [
+        "I'm here for you.",
+        "You've got this, just take it one step at a time."
+      ],
+      "errors": []
+    }
+  ],
+  "vision_backend": "TensorRT"
+}

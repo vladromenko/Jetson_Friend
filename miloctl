@@ -36,11 +36,11 @@ case "$cmd" in
     ;;
   select-text)
     [ -n "$arg" ] || { echo "Usage: ./miloctl select-text <model-id>"; exit 2; }
-    ./.venv/bin/python -c "import sys;sys.path.insert(0,'src');from model_manager import ModelManager;print(ModelManager().select_text('$arg'))"
+    ./.venv/bin/python -c "import sys;sys.path.insert(0,'src');from panel_model_manager import PanelModelManager;print(PanelModelManager().select_text(sys.argv[1]))" "$arg"
     ;;
   select-vlm)
     [ -n "$arg" ] || { echo "Usage: ./miloctl select-vlm <model-id>"; exit 2; }
-    ./.venv/bin/python -c "import sys;sys.path.insert(0,'src');from model_manager import ModelManager;print(ModelManager().select_vlm('$arg'))"
+    ./.venv/bin/python -c "import sys;sys.path.insert(0,'src');from panel_model_manager import PanelModelManager;print(PanelModelManager().select_vlm(sys.argv[1]))" "$arg"
     ;;
   panel-start)
     systemctl --user daemon-reload

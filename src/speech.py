@@ -18,11 +18,7 @@ class Speech:
     def __init__(self):
         root = os.getenv(
             "JETSON_FRIEND_ROOT",
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.abspath(__file__)
-                )
-            ),
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         )
 
         self.whisper = os.getenv(
@@ -55,10 +51,7 @@ class Speech:
         if os.path.isfile(configured_piper):
             self.piper = configured_piper
         else:
-            self.piper = (
-                shutil.which("piper")
-                or configured_piper
-            )
+            self.piper = shutil.which("piper") or configured_piper
 
         self.voice = os.getenv(
             "PIPER_VOICE",
@@ -143,6 +136,9 @@ class Speech:
             )
         )
 
+        self._voice_instance = None
+        self._voice_failed = False
+        self._synthesis_lock = threading.RLock()
         self.is_speaking = threading.Event()
 
         self._input_device = None
@@ -158,15 +154,10 @@ class Speech:
 
     def devices(self):
         try:
-            return str(
-                sd.query_devices()
-            )
+            return str(sd.query_devices())
 
         except Exception as exc:
-            return (
-                "audio unavailable: "
-                f"{exc}"
-            )
+            return f"audio unavailable: {exc}"
 
     def _get_face_from_callback(
         self,
@@ -187,12 +178,9 @@ class Speech:
             None,
         )
 
-        if (
-            owner is not None
-            and hasattr(
-                owner,
-                "set_speaking_active",
-            )
+        if owner is not None and hasattr(
+            owner,
+            "set_speaking_active",
         ):
             return owner
 
@@ -204,17 +192,12 @@ class Speech:
     ):
         face = self._active_face
 
-        if (
-            face is not None
-            and hasattr(
-                face,
-                "set_speaking_active",
-            )
+        if face is not None and hasattr(
+            face,
+            "set_speaking_active",
         ):
             try:
-                face.set_speaking_active(
-                    bool(active)
-                )
+                face.set_speaking_active(bool(active))
 
             except Exception:
                 pass
@@ -223,39 +206,23 @@ class Speech:
         self,
         refresh=False,
     ):
-        if (
-            self._input_device
-            is not None
-            and not refresh
-        ):
+        if self._input_device is not None and not refresh:
             return self._input_device
 
         try:
             devices = sd.query_devices()
 
         except Exception as exc:
-            self._print_mic_error(
-                (
-                    "cannot enumerate "
-                    "audio devices: "
-                    f"{exc}"
-                )
-            )
+            self._print_mic_error((f"cannot enumerate audio devices: {exc}"))
 
             return None
 
-        wanted = (
-            self.input_device_name
-            .strip()
-            .lower()
-        )
+        wanted = self.input_device_name.strip().lower()
 
         found = None
 
         if wanted:
-            for index, device in enumerate(
-                devices
-            ):
+            for index, device in enumerate(devices):
                 name = str(
                     device.get(
                         "name",
@@ -270,52 +237,38 @@ class Speech:
                     )
                 )
 
-                if (
-                    found is None
-                    and inputs > 0
-                    and wanted in name.lower()
-                ):
+                if found is None and inputs > 0 and wanted in name.lower():
                     found = index
 
         if found is not None:
             self._input_device = found
 
             print(
-                (
-                    "Microphone: "
-                    f"{devices[found].get('name')}"
-                ),
+                (f"Microphone: {devices[found].get('name')}"),
                 flush=True,
             )
 
             return found
 
         try:
-            default_input = int(
-                sd.default.device[0]
-            )
+            default_input = int(sd.default.device[0])
 
             if default_input >= 0:
-                device = devices[
-                    default_input
-                ]
+                device = devices[default_input]
 
-                if int(
-                    device.get(
-                        "max_input_channels",
-                        0,
+                if (
+                    int(
+                        device.get(
+                            "max_input_channels",
+                            0,
+                        )
                     )
-                ) > 0:
-                    self._input_device = (
-                        default_input
-                    )
+                    > 0
+                ):
+                    self._input_device = default_input
 
                     print(
-                        (
-                            "Using default "
-                            "microphone: "
-                            f"{device.get('name')}"
-                        ),
+                        (f"Using default microphone: {device.get('name')}"),
                         flush=True,
                     )
 
@@ -325,11 +278,7 @@ class Speech:
             pass
 
         self._print_mic_error(
-            (
-                f"input device "
-                f"'{self.input_device_name}' "
-                "is not available"
-            )
+            (f"input device '{self.input_device_name}' is not available")
         )
 
         return None
@@ -338,27 +287,40 @@ class Speech:
         self,
         refresh=False,
     ):
-        if (
-            self._output_device
-            is not None
-            and not refresh
-        ):
+        if self._output_device is not None and not refresh:
             return self._output_device
 
-        configured = (
-            self.output_hint
-            .strip()
-        )
+        configured = self.output_hint.strip()
 
         if configured.startswith(
             (
                 "hw:",
                 "plughw:",
                 "default",
+                "pipewire",
             )
         ):
             self._output_device = configured
             return configured
+
+        # Desktop audio already owns the ALSA device. Use its shared sink
+        # instead of competing for exclusive hardware access.
+        if shutil.which("pw-play") and shutil.which("pactl"):
+            try:
+                sinks = subprocess.run(
+                    ["pactl", "list", "short", "sinks"],
+                    text=True,
+                    capture_output=True,
+                    timeout=5,
+                )
+                if sinks.returncode == 0 and configured:
+                    for line in sinks.stdout.splitlines():
+                        fields = line.split()
+                        if len(fields) >= 2 and configured.lower() in fields[1].lower():
+                            self._output_device = f"pipewire:{fields[1]}"
+                            return self._output_device
+            except (OSError, subprocess.TimeoutExpired):
+                pass
 
         try:
             process = subprocess.run(
@@ -379,18 +341,10 @@ class Speech:
 
         selected = None
 
-        for line in (
-            process.stdout
-            .splitlines()
-        ):
+        for line in process.stdout.splitlines():
             lower = line.lower()
 
-            if (
-                selected is None
-                and "card " in lower
-                and wanted
-                and wanted in lower
-            ):
+            if selected is None and "card " in lower and wanted and wanted in lower:
                 match = re.search(
                     r"card\s+(\d+):",
                     line,
@@ -398,27 +352,16 @@ class Speech:
                 )
 
                 if match:
-                    selected = (
-                        "plughw:"
-                        f"{match.group(1)},0"
-                    )
+                    selected = f"plughw:{match.group(1)},0"
 
         if selected is None:
-            for line in (
-                process.stdout
-                .splitlines()
-            ):
+            for line in process.stdout.splitlines():
                 lower = line.lower()
 
                 if (
                     selected is None
                     and "card " in lower
-                    and (
-                        "uacdemo"
-                        in lower
-                        or "usb audio"
-                        in lower
-                    )
+                    and ("uacdemo" in lower or "usb audio" in lower)
                 ):
                     match = re.search(
                         r"card\s+(\d+):",
@@ -427,10 +370,7 @@ class Speech:
                     )
 
                     if match:
-                        selected = (
-                            "plughw:"
-                            f"{match.group(1)},0"
-                        )
+                        selected = f"plughw:{match.group(1)},0"
 
         if selected is None:
             selected = "default"
@@ -445,22 +385,13 @@ class Speech:
     ):
         now = time.monotonic()
 
-        should_print = (
-            message
-            != self._last_mic_error
-            or (
-                now
-                - self._last_mic_error_time
-                >= 5.0
-            )
+        should_print = message != self._last_mic_error or (
+            now - self._last_mic_error_time >= 5.0
         )
 
         if should_print:
             print(
-                (
-                    "Microphone error: "
-                    f"{message}"
-                ),
+                (f"Microphone error: {message}"),
                 flush=True,
             )
 
@@ -471,10 +402,7 @@ class Speech:
     def _rms(
         chunk,
     ):
-        if (
-            chunk is None
-            or chunk.size == 0
-        ):
+        if chunk is None or chunk.size == 0:
             return 0.0
 
         return float(
@@ -488,6 +416,22 @@ class Speech:
             )
         )
 
+    def _capture_rate(self, device, requested):
+        cached = getattr(self, "_validated_capture", None)
+        if cached and cached[:2] == (device, requested):
+            return cached[2]
+        native = int(sd.query_devices(device, "input")["default_samplerate"])
+        for rate in dict.fromkeys((requested, 16000, native)):
+            try:
+                sd.check_input_settings(
+                    device=device, channels=1, dtype="float32", samplerate=rate
+                )
+                self._validated_capture = (device, requested, rate)
+                return rate
+            except (sd.PortAudioError, ValueError):
+                continue
+        raise RuntimeError("Microphone has no supported mono capture format")
+
     def listen_once(
         self,
         set_state,
@@ -498,63 +442,45 @@ class Speech:
         if self.is_speaking.is_set():
             return ""
 
-        rate = (
-            int(rate)
-            if rate
-            else self.sample_rate
-        )
+        rate = int(rate) if rate else self.sample_rate
 
-        max_seconds = (
-            float(max_seconds)
-            if max_seconds
-            else self.max_seconds
-        )
+        max_seconds = float(max_seconds) if max_seconds else self.max_seconds
 
-        input_device = (
-            self._find_input_device()
-        )
+        input_device = self._find_input_device()
 
         if input_device is None:
-            time.sleep(
-                0.5
-            )
+            time.sleep(0.5)
             return ""
 
-        audio_queue = queue.Queue(
-            maxsize=64
-        )
+        try:
+            rate = self._capture_rate(input_device, rate)
+        except Exception as exc:
+            self._print_mic_error(str(exc))
+            if stop_event is not None:
+                stop_event.wait(1.0)
+            else:
+                time.sleep(1.0)
+            return ""
+
+        audio_queue = queue.Queue(maxsize=64)
 
         frames = []
 
         pre_roll_blocks = max(
             1,
-            int(
-                self.pre_roll_seconds
-                * rate
-                / self.blocksize
-            ),
+            int(self.pre_roll_seconds * rate / self.blocksize),
         )
 
-        pre_roll = deque(
-            maxlen=pre_roll_blocks
-        )
+        pre_roll = deque(maxlen=pre_roll_blocks)
 
         silence_needed = max(
             2,
-            int(
-                self.end_silence_seconds
-                * rate
-                / self.blocksize
-            ),
+            int(self.end_silence_seconds * rate / self.blocksize),
         )
 
         minimum_speech_blocks = max(
             1,
-            int(
-                self.min_speech_seconds
-                * rate
-                / self.blocksize
-            ),
+            int(self.min_speech_seconds * rate / self.blocksize),
         )
 
         speaking = False
@@ -562,9 +488,7 @@ class Speech:
         silence_blocks = 0
         finished = False
 
-        started_at = (
-            time.monotonic()
-        )
+        started_at = time.monotonic()
 
         def callback(
             indata,
@@ -573,9 +497,7 @@ class Speech:
             status,
         ):
             try:
-                audio_queue.put_nowait(
-                    indata.copy()
-                )
+                audio_queue.put_nowait(indata.copy())
 
             except queue.Full:
                 try:
@@ -585,9 +507,7 @@ class Speech:
                     pass
 
                 try:
-                    audio_queue.put_nowait(
-                        indata.copy()
-                    )
+                    audio_queue.put_nowait(indata.copy())
 
                 except queue.Full:
                     pass
@@ -602,11 +522,7 @@ class Speech:
                 callback=callback,
             ):
                 while not finished:
-                    stop_requested = (
-                        stop_event
-                        is not None
-                        and stop_event.is_set()
-                    )
+                    stop_requested = stop_event is not None and stop_event.is_set()
 
                     if stop_requested:
                         return ""
@@ -614,10 +530,7 @@ class Speech:
                     if self.is_speaking.is_set():
                         return ""
 
-                    elapsed = (
-                        time.monotonic()
-                        - started_at
-                    )
+                    elapsed = time.monotonic() - started_at
 
                     if elapsed >= max_seconds:
                         finished = True
@@ -626,94 +539,61 @@ class Speech:
                         chunk = None
 
                         try:
-                            chunk = (
-                                audio_queue.get(
-                                    timeout=0.20
-                                )
-                            )
+                            chunk = audio_queue.get(timeout=0.20)
 
                         except queue.Empty:
                             chunk = None
 
                         if chunk is not None:
-                            rms = self._rms(
-                                chunk
-                            )
+                            rms = self._rms(chunk)
 
                             if not speaking:
-                                pre_roll.append(
-                                    chunk
-                                )
+                                pre_roll.append(chunk)
 
-                                if (
-                                    rms
-                                    >= self.speech_threshold
-                                ):
+                                if rms >= self.speech_threshold:
                                     speaking = True
 
-                                    frames.extend(
-                                        list(
-                                            pre_roll
-                                        )
-                                    )
+                                    frames.extend(list(pre_roll))
 
                                     pre_roll.clear()
 
                                     speech_blocks = 1
                                     silence_blocks = 0
 
-                                    set_state(
-                                        "listening"
-                                    )
+                                    set_state("listening")
 
                             else:
-                                frames.append(
-                                    chunk
-                                )
+                                frames.append(chunk)
 
-                                if (
-                                    rms
-                                    >= self.silence_threshold
-                                ):
+                                if rms >= self.silence_threshold:
                                     speech_blocks += 1
                                     silence_blocks = 0
 
                                 else:
                                     silence_blocks += 1
 
-                                enough_silence = (
-                                    silence_blocks
-                                    >= silence_needed
-                                )
+                                enough_silence = silence_blocks >= silence_needed
 
-                                enough_speech = (
-                                    speech_blocks
-                                    >= minimum_speech_blocks
-                                )
+                                enough_speech = speech_blocks >= minimum_speech_blocks
 
-                                if (
-                                    enough_silence
-                                    and enough_speech
-                                ):
+                                if enough_silence and enough_speech:
                                     finished = True
 
         except Exception as exc:
             self._input_device = None
-
-            self._print_mic_error(
-                str(exc)
-            )
-
+            self._validated_capture = None
+            self._print_mic_error(str(exc))
+            if stop_event is not None:
+                stop_event.wait(1.0)
+            else:
+                time.sleep(1.0)
             return ""
 
-        if (
-            not speaking
-            or not frames
-            or speech_blocks
-            < minimum_speech_blocks
-        ):
+        if not speaking or not frames or speech_blocks < minimum_speech_blocks:
             return ""
 
+        # Estimate the last voiced sample from the trailing VAD silence.
+        self.last_speech_end = time.monotonic() - silence_blocks * self.blocksize / rate
         audio = np.concatenate(
             frames,
             axis=0,
@@ -722,41 +602,24 @@ class Speech:
         if audio.size == 0:
             return ""
 
-        overall_rms = self._rms(
-            audio
-        )
+        overall_rms = self._rms(audio)
 
-        if (
-            overall_rms
-            < self.minimum_audio_rms
-        ):
+        if overall_rms < self.minimum_audio_rms:
             return ""
 
         if rate != 16000:
-            audio_16k = (
-                resample_poly(
-                    audio[:, 0],
-                    16000,
-                    rate,
-                )
-                .astype(
-                    np.float32
-                )
-            )
+            audio_16k = resample_poly(
+                audio[:, 0],
+                16000,
+                rate,
+            ).astype(np.float32)
 
         else:
-            audio_16k = (
-                audio[:, 0]
-                .astype(
-                    np.float32
-                )
-            )
+            audio_16k = audio[:, 0].astype(np.float32)
 
-        audio_16k = (
-            audio_16k.reshape(
-                -1,
-                1,
-            )
+        audio_16k = audio_16k.reshape(
+            -1,
+            1,
         )
 
         return self.transcribe(
@@ -771,19 +634,12 @@ class Speech:
         if not text:
             return ""
 
-        lines = [
-            line.strip()
-            for line
-            in str(text).splitlines()
-            if line.strip()
-        ]
+        lines = [line.strip() for line in str(text).splitlines() if line.strip()]
 
         if not lines:
             return ""
 
-        recognized = (
-            lines[-1].strip()
-        )
+        recognized = lines[-1].strip()
 
         recognized = re.sub(
             r"^\[[0-9:.]+\s*-->\s*[0-9:.]+\]\s*",
@@ -798,11 +654,7 @@ class Speech:
             flags=re.I,
         ).strip()
 
-        normalized = (
-            recognized
-            .strip()
-            .lower()
-        )
+        normalized = recognized.strip().lower()
 
         ignored = {
             "",
@@ -832,15 +684,9 @@ class Speech:
         if normalized in ignored:
             return ""
 
-        bracket_only = (
-            normalized.startswith("[")
-            and normalized.endswith("]")
-        )
+        bracket_only = normalized.startswith("[") and normalized.endswith("]")
 
-        parentheses_only = (
-            normalized.startswith("(")
-            and normalized.endswith(")")
-        )
+        parentheses_only = normalized.startswith("(") and normalized.endswith(")")
 
         if bracket_only:
             return ""
@@ -861,10 +707,7 @@ class Speech:
         audio,
         rate,
     ):
-        if (
-            audio is None
-            or audio.size == 0
-        ):
+        if audio is None or audio.size == 0:
             return ""
 
         with tempfile.NamedTemporaryFile(
@@ -880,9 +723,7 @@ class Speech:
             ) as wav_file:
                 wav_file.setnchannels(1)
                 wav_file.setsampwidth(2)
-                wav_file.setframerate(
-                    rate
-                )
+                wav_file.setframerate(rate)
 
                 pcm = (
                     np.clip(
@@ -891,13 +732,9 @@ class Speech:
                         1.0,
                     )
                     * 32767
-                ).astype(
-                    np.int16
-                )
+                ).astype(np.int16)
 
-                wav_file.writeframes(
-                    pcm.tobytes()
-                )
+                wav_file.writeframes(pcm.tobytes())
 
             command = [
                 self.whisper,
@@ -911,9 +748,7 @@ class Speech:
                 "-np",
             ]
 
-            started = (
-                time.monotonic()
-            )
+            started = time.monotonic()
 
             process = subprocess.run(
                 command,
@@ -922,38 +757,21 @@ class Speech:
                 timeout=120,
             )
 
-            elapsed = (
-                time.monotonic()
-                - started
-            )
+            elapsed = time.monotonic() - started
 
-            if (
-                process.returncode
-                != 0
-            ):
+            if process.returncode != 0:
                 print(
-                    (
-                        "Whisper error: "
-                        f"{process.stderr.strip()}"
-                    ),
+                    (f"Whisper error: {process.stderr.strip()}"),
                     flush=True,
                 )
 
                 return ""
 
-            recognized = (
-                self._clean_transcription(
-                    process.stdout
-                )
-            )
+            recognized = self._clean_transcription(process.stdout)
 
             if recognized:
                 print(
-                    (
-                        "STT: "
-                        f"{recognized} "
-                        f"({elapsed:.2f}s)"
-                    ),
+                    (f"STT: {recognized} ({elapsed:.2f}s)"),
                     flush=True,
                 )
 
@@ -961,10 +779,7 @@ class Speech:
 
         except Exception as exc:
             print(
-                (
-                    "Whisper error: "
-                    f"{exc}"
-                ),
+                (f"Whisper error: {exc}"),
                 flush=True,
             )
 
@@ -972,9 +787,7 @@ class Speech:
 
         finally:
             try:
-                os.unlink(
-                    path
-                )
+                os.unlink(path)
 
             except OSError:
                 pass
@@ -986,26 +799,16 @@ class Speech:
         Immediately stops current playback.
         """
 
-        self._set_mouth_active(
-            False
-        )
+        self._set_mouth_active(False)
 
         with self._playback_lock:
-            process = (
-                self._playback_process
-            )
+            process = self._playback_process
 
-            if (
-                process is not None
-                and process.poll()
-                is None
-            ):
+            if process is not None and process.poll() is None:
                 try:
                     process.terminate()
 
-                    process.wait(
-                        timeout=1.0
-                    )
+                    process.wait(timeout=1.0)
 
                 except Exception:
                     try:
@@ -1018,35 +821,51 @@ class Speech:
 
         self.is_speaking.clear()
 
-    def speak(
-        self,
-        text,
-        set_state,
-    ):
-        text = str(
-            text or ""
-        ).strip()
+    def warmup(self):
+        if os.getenv("PIPER_PERSISTENT", "1") != "1" or self._voice_failed:
+            return
+        with self._synthesis_lock:
+            if self._voice_instance is None:
+                try:
+                    from piper import PiperVoice
+
+                    self._voice_instance = PiperVoice.load(self.voice, use_cuda=False)
+                except Exception as exc:
+                    self._voice_failed = True
+                    print(f"Persistent Piper unavailable; using CLI: {exc}", flush=True)
+
+    def synthesize(self, text, wav_path):
+        with self._synthesis_lock:
+            self.warmup()
+            if self._voice_instance is not None:
+                with wave.open(str(wav_path), "wb") as wav_file:
+                    self._voice_instance.synthesize_wav(text, wav_file)
+                return
+            result = subprocess.run(
+                [self.piper, "--model", self.voice, "--output_file", str(wav_path)],
+                input=text,
+                text=True,
+                capture_output=True,
+                timeout=60,
+            )
+            if result.returncode:
+                raise RuntimeError(f"Piper failed: {result.stderr.strip()}")
+
+    def speak(self, text, set_state, timing=None):
+        text = str(text or "").strip()
 
         if not text:
             return
 
-        self._active_face = (
-            self._get_face_from_callback(
-                set_state
-            )
-        )
+        self._active_face = self._get_face_from_callback(set_state)
 
         self.is_speaking.set()
 
-        self._set_mouth_active(
-            False
-        )
+        self._set_mouth_active(False)
 
         # MILO has the answer, but there is no
         # actual sound yet.
-        set_state(
-            "thinking"
-        )
+        set_state("thinking")
 
         with tempfile.NamedTemporaryFile(
             suffix=".wav",
@@ -1055,54 +874,31 @@ class Speech:
             wav_path = file.name
 
         try:
-            synth_started = (
-                time.monotonic()
-            )
+            synth_started = time.monotonic()
 
-            synth = subprocess.run(
-                [
-                    self.piper,
-                    "--model",
-                    self.voice,
-                    "--output_file",
-                    wav_path,
-                ],
-                input=text,
-                text=True,
-                capture_output=True,
-                timeout=60,
-            )
-
-            synth_elapsed = (
-                time.monotonic()
-                - synth_started
-            )
-
-            if (
-                synth.returncode
-                != 0
-            ):
-                print(
-                    (
-                        "Piper error: "
-                        f"{synth.stderr.strip()}"
-                    ),
-                    flush=True,
-                )
-
-                return
+            self.synthesize(text, wav_path)
+            synth_elapsed = time.monotonic() - synth_started
 
             print(
-                (
-                    "TTS ready: "
-                    f"{synth_elapsed:.2f}s"
-                ),
+                (f"TTS ready: {synth_elapsed:.2f}s"),
                 flush=True,
             )
 
+            if timing:
+                timing.data.setdefault("tts_ms", round(synth_elapsed * 1000, 2))
+                if "tts_ready_ms" not in timing.data:
+                    timing.mark("tts_ready")
             output_device = self._find_output_device()
 
-            if output_device == "default":
+            if output_device.startswith("pipewire:"):
+                command = [
+                    "pw-play",
+                    "--target",
+                    output_device.split(":", 1)[1],
+                    wav_path,
+                ]
+                playback_name = output_device
+            elif output_device in {"default", "pipewire"}:
                 command = [
                     "pw-play",
                     wav_path,
@@ -1119,91 +915,58 @@ class Speech:
                 playback_name = output_device
 
             print(
-                (
-                    "Speaker: "
-                    f"{playback_name}"
-                ),
+                (f"Speaker: {playback_name}"),
                 flush=True,
             )
 
             # The mouth starts immediately before the
             # actual playback process is launched.
-            set_state(
-                "speaking"
-            )
+            set_state("speaking")
 
-            self._set_mouth_active(
-                True
-            )
+            self._set_mouth_active(True)
 
             with self._playback_lock:
-                self._playback_process = (
-                    subprocess.Popen(
-                        command,
-                        stdout=(
-                            subprocess.DEVNULL
-                        ),
-                        stderr=(
-                            subprocess.PIPE
-                        ),
-                        text=True,
-                    )
+                self._playback_process = subprocess.Popen(
+                    command,
+                    stdout=(subprocess.DEVNULL),
+                    stderr=(subprocess.PIPE),
+                    text=True,
                 )
 
-                playback = (
-                    self._playback_process
-                )
+                playback = self._playback_process
+                if timing and "playback_launch_ms" not in timing.data:
+                    timing.mark("playback_launch")
 
             try:
-                _, stderr = (
-                    playback.communicate(
-                        timeout=90
-                    )
-                )
+                _, stderr = playback.communicate(timeout=90)
 
-            except (
-                subprocess.TimeoutExpired
-            ):
+            except subprocess.TimeoutExpired:
                 playback.kill()
 
-                _, stderr = (
-                    playback.communicate()
-                )
+                _, stderr = playback.communicate()
 
-            self._set_mouth_active(
-                False
-            )
+            self._set_mouth_active(False)
 
-            if (
-                playback.returncode
-                not in {
-                    0,
-                    -15,
-                }
-            ):
+            if playback.returncode not in {
+                0,
+                -15,
+            }:
                 print(
-                    (
-                        "Speaker error: "
-                        f"{stderr.strip()}"
-                    ),
+                    (f"Speaker error: {stderr.strip()}"),
                     flush=True,
                 )
+                self._output_device = None
 
         except Exception as exc:
             print(
-                (
-                    "Speaker error: "
-                    f"{exc}"
-                ),
+                (f"Speaker error: {exc}"),
                 flush=True,
             )
 
             self._output_device = None
 
         finally:
-            self._set_mouth_active(
-                False
-            )
+            self._set_mouth_active(False)
 
             with self._playback_lock:
                 self._playback_process = None
@@ -1213,9 +976,7 @@ class Speech:
             self._active_face = None
 
             try:
-                os.unlink(
-                    wav_path
-                )
+                os.unlink(wav_path)
 
             except OSError:
                 pass

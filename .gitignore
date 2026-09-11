@@ -35,3 +35,6 @@ config.env
 data/
 *.bak
 *.bak_*
+
+# On-device source/database rollback snapshots
+.milo_core_backup_*/

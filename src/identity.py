@@ -1,7 +1,6 @@
 import json
 import os
 import sqlite3
-import threading
 import time
 from dataclasses import dataclass
 
@@ -40,15 +39,11 @@ class IdentityManager:
 
     def __init__(self, memory, model_path=None):
         self.memory = memory
-        self.lock = threading.RLock()
+        self.lock = memory.lock
 
         root = os.getenv(
             "JETSON_FRIEND_ROOT",
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.abspath(__file__)
-                )
-            ),
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         )
 
         self.model_path = model_path or os.getenv(
@@ -114,6 +109,7 @@ class IdentityManager:
         self.available = False
         self.backend = "disabled"
 
+        self.track_results = {}
         self.last_recognition_at = 0.0
 
         self.last_result = IdentityResult(
@@ -127,6 +123,15 @@ class IdentityManager:
         self.last_result_at = 0.0
 
         self._create_schema()
+        with self._connect() as db:
+            columns = {
+                row[1]
+                for row in db.execute("PRAGMA table_info(person_face_embeddings)")
+            }
+            if "representation" not in columns:
+                db.execute(
+                    "ALTER TABLE person_face_embeddings ADD COLUMN representation TEXT NOT NULL DEFAULT 'legacy-unaligned'"
+                )
         self._load_recognizer()
 
     def _connect(self):
@@ -137,17 +142,11 @@ class IdentityManager:
 
         db.row_factory = sqlite3.Row
 
-        db.execute(
-            "PRAGMA foreign_keys = ON"
-        )
+        db.execute("PRAGMA foreign_keys = ON")
 
-        db.execute(
-            "PRAGMA journal_mode = WAL"
-        )
+        db.execute("PRAGMA journal_mode = WAL")
 
-        db.execute(
-            "PRAGMA synchronous = NORMAL"
-        )
+        db.execute("PRAGMA synchronous = NORMAL")
 
         return db
 
@@ -194,22 +193,17 @@ class IdentityManager:
             )
             return
 
-        if not os.path.isfile(
-            self.model_path
-        ):
+        if not os.path.isfile(self.model_path):
             print(
-                "Identity waiting for SFace model: "
-                + self.model_path,
+                "Identity waiting for SFace model: " + self.model_path,
                 flush=True,
             )
             return
 
         try:
-            self.recognizer = (
-                cv2.FaceRecognizerSF_create(
-                    self.model_path,
-                    "",
-                )
+            self.recognizer = cv2.FaceRecognizerSF_create(
+                self.model_path,
+                "",
             )
 
             self.available = True
@@ -239,13 +233,9 @@ class IdentityManager:
             dtype=np.float32,
         ).reshape(-1)
 
-        norm = float(
-            np.linalg.norm(
-                vector
-            )
-        )
+        norm = float(np.linalg.norm(vector))
 
-        if norm <= 1e-8:
+        if not np.isfinite(vector).all() or norm <= 1e-8:
             return None
 
         return np.ascontiguousarray(
@@ -253,45 +243,27 @@ class IdentityManager:
             dtype=np.float32,
         )
 
-    def extract_embedding(
-        self,
-        face_crop,
-    ):
+    def extract_embedding(self, face_crop, landmarks=None):
         if (
             not self.available
             or self.recognizer is None
-        ):
-            return None
-
-        if (
-            face_crop is None
+            or face_crop is None
             or face_crop.size == 0
         ):
             return None
-
+        if landmarks is None or len(landmarks) != 5:
+            return None
         try:
-            face = cv2.resize(
-                face_crop,
-                (112, 112),
-                interpolation=cv2.INTER_AREA,
+            h, w = face_crop.shape[:2]
+            row = np.asarray(
+                [0, 0, w, h, *np.asarray(landmarks).reshape(-1), 1.0], dtype=np.float32
             )
-
-            feature = (
-                self.recognizer.feature(
-                    face
-                )
-            )
-
-            return self._normalize_embedding(
-                feature
-            )
-
+            with self.lock:
+                aligned = self.recognizer.alignCrop(face_crop, row)
+                feature = self.recognizer.feature(aligned)
+            return self._normalize_embedding(feature)
         except Exception as exc:
-            print(
-                f"Face embedding warning: {exc}",
-                flush=True,
-            )
-
+            print(f"Face embedding warning: {exc}", flush=True)
             return None
 
     @staticmethod
@@ -304,9 +276,7 @@ class IdentityManager:
             dtype=np.float32,
         )
 
-        if vector.size != int(
-            dimensions
-        ):
+        if vector.size != int(dimensions):
             return None
 
         return np.ascontiguousarray(
@@ -328,19 +298,15 @@ class IdentityManager:
                     SELECT COUNT(*) AS count
                     FROM person_face_embeddings
                     WHERE person_id = ?
-                      AND active = 1
+                      AND active = 1 AND representation = 'sface-aligned-v1'
                     """,
-                    (
-                        person_id,
-                    ),
+                    (person_id,),
                 ).fetchone()
 
         if row is None:
             return 0
 
-        return int(
-            row["count"]
-        )
+        return int(row["count"])
 
     def add_embedding(
         self,
@@ -352,18 +318,12 @@ class IdentityManager:
         if not person_id:
             return False
 
-        person = self.memory.get_person(
-            person_id
-        )
+        person = self.memory.get_person(person_id)
 
         if person is None:
             return False
 
-        normalized = (
-            self._normalize_embedding(
-                embedding
-            )
-        )
+        normalized = self._normalize_embedding(embedding)
 
         if normalized is None:
             return False
@@ -372,16 +332,11 @@ class IdentityManager:
             0.0,
             min(
                 1.0,
-                float(
-                    quality
-                ),
+                float(quality),
             ),
         )
 
-        if (
-            quality
-            < self.min_face_quality
-        ):
+        if quality < self.min_face_quality:
             return False
 
         if self._is_duplicate_embedding(
@@ -394,6 +349,10 @@ class IdentityManager:
 
         with self.lock:
             with self._connect() as db:
+                if not db.execute(
+                    "SELECT 1 FROM persons WHERE id=? AND active=1", (person_id,)
+                ).fetchone():
+                    return False
                 db.execute(
                     """
                     INSERT INTO person_face_embeddings(
@@ -404,16 +363,15 @@ class IdentityManager:
                         source,
                         created,
                         last_used,
-                        active
+                        active,
+                        representation
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'sface-aligned-v1')
                     """,
                     (
                         person_id,
                         normalized.tobytes(),
-                        int(
-                            normalized.size
-                        ),
+                        int(normalized.size),
                         quality,
                         str(source)[:50],
                         now,
@@ -435,11 +393,7 @@ class IdentityManager:
         quality=1.0,
         source="camera",
     ):
-        embedding = (
-            self.extract_embedding(
-                face_crop
-            )
-        )
+        embedding = self.extract_embedding(face_crop)
 
         if embedding is None:
             return False
@@ -456,9 +410,7 @@ class IdentityManager:
         person_id,
         candidate,
     ):
-        rows = self._load_embeddings(
-            person_id=person_id
-        )
+        rows = self._load_embeddings(person_id=person_id)
 
         duplicate = False
 
@@ -468,7 +420,7 @@ class IdentityManager:
                 row["embedding"],
             )
 
-            if similarity >= 0.92:
+            if similarity >= 0.98:
                 duplicate = True
                 break
 
@@ -484,14 +436,12 @@ class IdentityManager:
             SELECT id
             FROM person_face_embeddings
             WHERE person_id = ?
-              AND active = 1
+              AND active = 1 AND representation = 'sface-aligned-v1'
             ORDER BY
                 quality DESC,
                 created DESC
             """,
-            (
-                person_id,
-            ),
+            (person_id,),
         ).fetchall()
 
         keep = max(
@@ -500,16 +450,9 @@ class IdentityManager:
         )
 
         if len(rows) > keep:
-            remove_ids = [
-                row["id"]
-                for row
-                in rows[keep:]
-            ]
+            remove_ids = [row["id"] for row in rows[keep:]]
 
-            placeholders = ",".join(
-                "?"
-                for _ in remove_ids
-            )
+            placeholders = ",".join("?" for _ in remove_ids)
 
             db.execute(
                 f"""
@@ -517,9 +460,7 @@ class IdentityManager:
                 SET active = 0
                 WHERE id IN ({placeholders})
                 """,
-                tuple(
-                    remove_ids
-                ),
+                tuple(remove_ids),
             )
 
     def _load_embeddings(
@@ -540,15 +481,13 @@ class IdentityManager:
                             created,
                             last_used
                         FROM person_face_embeddings
-                        WHERE active = 1
+                        WHERE active = 1 AND representation = 'sface-aligned-v1'
                           AND person_id = ?
                         ORDER BY
                             quality DESC,
                             created DESC
                         """,
-                        (
-                            person_id,
-                        ),
+                        (person_id,),
                     ).fetchall()
 
                 else:
@@ -563,7 +502,7 @@ class IdentityManager:
                             created,
                             last_used
                         FROM person_face_embeddings
-                        WHERE active = 1
+                        WHERE active = 1 AND representation = 'sface-aligned-v1'
                         ORDER BY
                             person_id,
                             quality DESC,
@@ -574,38 +513,20 @@ class IdentityManager:
         result = []
 
         for row in rows:
-            vector = (
-                self._blob_to_embedding(
-                    row["embedding"],
-                    row["dimensions"],
-                )
+            vector = self._blob_to_embedding(
+                row["embedding"],
+                row["dimensions"],
             )
 
             if vector is not None:
                 result.append(
                     {
                         "id": row["id"],
-                        "person_id": (
-                            row[
-                                "person_id"
-                            ]
-                        ),
+                        "person_id": (row["person_id"]),
                         "embedding": vector,
-                        "quality": float(
-                            row[
-                                "quality"
-                            ]
-                        ),
-                        "created": float(
-                            row[
-                                "created"
-                            ]
-                        ),
-                        "last_used": (
-                            row[
-                                "last_used"
-                            ]
-                        ),
+                        "quality": float(row["quality"]),
+                        "created": float(row["created"]),
+                        "last_used": (row["last_used"]),
                     }
                 )
 
@@ -626,28 +547,14 @@ class IdentityManager:
             dtype=np.float32,
         ).reshape(-1)
 
-        if (
-            a.size != b.size
-            or a.size == 0
-        ):
+        if a.size != b.size or a.size == 0:
             return -1.0
 
-        a_norm = float(
-            np.linalg.norm(
-                a
-            )
-        )
+        a_norm = float(np.linalg.norm(a))
 
-        b_norm = float(
-            np.linalg.norm(
-                b
-            )
-        )
+        b_norm = float(np.linalg.norm(b))
 
-        if (
-            a_norm <= 1e-8
-            or b_norm <= 1e-8
-        ):
+        if a_norm <= 1e-8 or b_norm <= 1e-8:
             return -1.0
 
         return float(
@@ -655,10 +562,7 @@ class IdentityManager:
                 a,
                 b,
             )
-            / (
-                a_norm
-                * b_norm
-            )
+            / (a_norm * b_norm)
         )
 
     def _person_scores(
@@ -670,9 +574,7 @@ class IdentityManager:
         grouped = {}
 
         for row in rows:
-            person_id = row[
-                "person_id"
-            ]
+            person_id = row["person_id"]
 
             similarity = self._cosine(
                 candidate,
@@ -680,13 +582,9 @@ class IdentityManager:
             )
 
             if person_id not in grouped:
-                grouped[
-                    person_id
-                ] = []
+                grouped[person_id] = []
 
-            grouped[
-                person_id
-            ].append(
+            grouped[person_id].append(
                 (
                     similarity,
                     row["quality"],
@@ -700,6 +598,8 @@ class IdentityManager:
             person_id,
             samples,
         ) in grouped.items():
+            if len(samples) < 3:
+                continue
             ordered = sorted(
                 samples,
                 key=lambda item: item[0],
@@ -709,7 +609,7 @@ class IdentityManager:
             best = ordered[0][0]
 
             top = ordered[
-                :min(
+                : min(
                     3,
                     len(ordered),
                 )
@@ -725,54 +625,31 @@ class IdentityManager:
             ) in top:
                 weight = max(
                     0.25,
-                    float(
-                        quality
-                    ),
+                    float(quality),
                 )
 
-                weighted_sum += (
-                    similarity
-                    * weight
-                )
+                weighted_sum += similarity * weight
 
-                weight_total += (
-                    weight
-                )
+                weight_total += weight
 
-            average = (
-                weighted_sum
-                / max(
-                    weight_total,
-                    1e-8,
-                )
+            average = weighted_sum / max(
+                weight_total,
+                1e-8,
             )
 
-            score = (
-                best * 0.70
-                + average * 0.30
-            )
+            score = best * 0.70 + average * 0.30
 
             scores.append(
                 {
-                    "person_id": (
-                        person_id
-                    ),
-                    "score": float(
-                        score
-                    ),
-                    "best": float(
-                        best
-                    ),
-                    "embedding_id": int(
-                        ordered[0][2]
-                    ),
+                    "person_id": (person_id),
+                    "score": float(score),
+                    "best": float(best),
+                    "embedding_id": int(ordered[0][2]),
                 }
             )
 
         scores.sort(
-            key=lambda item: (
-                item["score"]
-            ),
+            key=lambda item: item["score"],
             reverse=True,
         )
 
@@ -782,11 +659,7 @@ class IdentityManager:
         self,
         embedding,
     ):
-        candidate = (
-            self._normalize_embedding(
-                embedding
-            )
-        )
+        candidate = self._normalize_embedding(embedding)
 
         if candidate is None:
             return IdentityResult(
@@ -797,9 +670,7 @@ class IdentityManager:
                 "UNKNOWN",
             )
 
-        scores = self._person_scores(
-            candidate
-        )
+        scores = self._person_scores(candidate)
 
         if not scores:
             return IdentityResult(
@@ -813,34 +684,18 @@ class IdentityManager:
         best = scores[0]
 
         if len(scores) > 1:
-            second_score = (
-                scores[1]["score"]
-            )
+            second_score = scores[1]["score"]
         else:
             second_score = -1.0
 
-        margin = (
-            best["score"]
-            - second_score
-        )
+        margin = best["score"] - second_score
 
         accepted = (
-            best["score"]
-            >= self.match_threshold
-            and (
-                best["score"]
-                >= self.strong_match_threshold
-                or margin
-                >= self.ambiguity_margin
-            )
+            best["score"] >= self.match_threshold and margin >= self.ambiguity_margin
         )
 
         if not accepted:
-            confidence = (
-                self._similarity_confidence(
-                    best["score"]
-                )
-            )
+            confidence = self._similarity_confidence(best["score"])
 
             return IdentityResult(
                 None,
@@ -850,9 +705,7 @@ class IdentityManager:
                 "UNKNOWN",
             )
 
-        person = self.memory.get_person(
-            best["person_id"]
-        )
+        person = self.memory.get_person(best["person_id"])
 
         if person is None:
             return IdentityResult(
@@ -863,19 +716,9 @@ class IdentityManager:
                 "UNKNOWN",
             )
 
-        confidence = (
-            self._similarity_confidence(
-                best["score"]
-            )
-        )
+        confidence = self._similarity_confidence(best["score"])
 
-        self._mark_embedding_used(
-            best["embedding_id"]
-        )
-
-        self.memory.touch_person(
-            best["person_id"]
-        )
+        self._mark_embedding_used(best["embedding_id"])
 
         return IdentityResult(
             best["person_id"],
@@ -893,10 +736,7 @@ class IdentityManager:
     ):
         now = time.monotonic()
 
-        if (
-            float(quality)
-            < self.min_face_quality
-        ):
+        if float(quality) < self.min_face_quality:
             return IdentityResult(
                 None,
                 None,
@@ -914,22 +754,9 @@ class IdentityManager:
                 "UNAVAILABLE",
             )
 
-        if (
-            not force
-            and (
-                now
-                - self.last_recognition_at
-                < self.recognition_cooldown
-            )
-        ):
-            if (
-                self.last_result.status
-                == "KNOWN"
-                and (
-                    now
-                    - self.last_result_at
-                    <= self.identity_hold_seconds
-                )
+        if not force and (now - self.last_recognition_at < self.recognition_cooldown):
+            if self.last_result.status == "KNOWN" and (
+                now - self.last_result_at <= self.identity_hold_seconds
             ):
                 return self.last_result
 
@@ -941,15 +768,9 @@ class IdentityManager:
                 "COOLDOWN",
             )
 
-        self.last_recognition_at = (
-            now
-        )
+        self.last_recognition_at = now
 
-        embedding = (
-            self.extract_embedding(
-                face_crop
-            )
-        )
+        embedding = self.extract_embedding(face_crop)
 
         if embedding is None:
             result = IdentityResult(
@@ -961,81 +782,53 @@ class IdentityManager:
             )
 
         else:
-            result = (
-                self.recognize_embedding(
-                    embedding
-                )
-            )
+            result = self.recognize_embedding(embedding)
 
         self.last_result = result
         self.last_result_at = now
 
         return result
 
-    def recognize_from_vision(
-        self,
-        vision,
-        force=False,
-    ):
-        crop, meta = (
-            vision.get_face_crop(
-                min_quality=(
-                    self.min_face_quality
-                )
-            )
+    def recognize_from_vision(self, vision, force=False, track_id=None):
+        crop, meta = vision.get_face_crop(
+            min_quality=self.min_face_quality, track_id=track_id
         )
-
-        if crop is None:
-            if meta is None:
-                status = "NO_FACE"
-            else:
-                status = "LOW_QUALITY"
-
-            return IdentityResult(
-                None,
-                None,
-                0.0,
-                0.0,
-                status,
-            )
-
-        return self.recognize_face(
-            crop,
-            quality=float(
-                meta.get(
-                    "quality",
-                    1.0,
-                )
-            ),
-            force=force,
+        unknown = IdentityResult(None, None, 0.0, 0.0, "UNKNOWN")
+        if crop is None or meta is None:
+            self.track_results.pop(track_id, None)
+            return unknown
+        track_id = meta["track_id"]
+        now = time.monotonic()
+        cached = self.track_results.get(track_id)
+        if cached and not force and now - cached[0] < self.recognition_cooldown:
+            return cached[1]
+        embedding = self.extract_embedding(crop, meta.get("local_landmarks"))
+        result = (
+            self.recognize_embedding(embedding) if embedding is not None else unknown
         )
+        self.track_results = {
+            tid: value
+            for tid, value in self.track_results.items()
+            if now - value[0] < 30
+        }
+        self.track_results[track_id] = (now, result)
+        self.last_result, self.last_result_at = result, now
+        return result
 
     def _similarity_confidence(
         self,
         similarity,
     ):
-        low = (
-            self.match_threshold
-            - 0.10
-        )
+        low = self.match_threshold - 0.10
 
         high = max(
             self.strong_match_threshold,
-            self.match_threshold
-            + 0.10,
+            self.match_threshold + 0.10,
         )
 
-        normalized = (
-            (
-                float(
-                    similarity
-                )
-                - low
-            )
-            / max(
-                high - low,
-                1e-6,
-            )
+        normalized = (float(similarity) - low) / max(
+            high - low,
+            1e-6,
         )
 
         return round(
@@ -1063,140 +856,61 @@ class IdentityManager:
                     """,
                     (
                         time.time(),
-                        int(
-                            embedding_id
-                        ),
+                        int(embedding_id),
                     ),
                 )
 
     def enroll_person_from_vision(
-        self,
-        name,
-        vision,
-        samples=5,
-        timeout=8.0,
+        self, name, vision, samples=5, timeout=8.0, person_id=None
     ):
-        """
-        Explicit onboarding.
-
-        Collects several good and sufficiently
-        different facial samples.
-        """
-
-        if not self.available:
-            return {
-                "ok": False,
-                "person_id": None,
-                "name": name,
-                "samples": 0,
-                "reason": (
-                    "identity_model_unavailable"
-                ),
-            }
-
-        person_id = (
-            self.memory.create_person(
-                name,
-                make_current=True,
+        if not self.available or not person_id or not self.memory.get_person(person_id):
+            return {"ok": False, "samples": 0, "reason": "profile_or_model_unavailable"}
+        target = max(3, int(samples))
+        deadline = time.monotonic() + max(3.0, float(timeout))
+        track_id = None
+        last_capture = None
+        candidates = []
+        while time.monotonic() < deadline and len(candidates) < target:
+            crop, meta = vision.get_face_crop(min_quality=self.min_face_quality)
+            if crop is None or meta is None:
+                time.sleep(0.1)
+                continue
+            if track_id is None:
+                track_id = meta["track_id"]
+            if meta["track_id"] != track_id:
+                return {"ok": False, "samples": 0, "reason": "person_changed"}
+            if meta["captured"] != last_capture:
+                last_capture = meta["captured"]
+                embedding = self.extract_embedding(crop, meta.get("local_landmarks"))
+                if embedding is not None:
+                    if (
+                        candidates
+                        and self._cosine(embedding, candidates[0][0])
+                        < self.match_threshold
+                    ):
+                        return {
+                            "ok": False,
+                            "samples": 0,
+                            "reason": "inconsistent_faces",
+                        }
+                    if not any(
+                        self._cosine(embedding, old[0]) >= 0.98 for old in candidates
+                    ):
+                        candidates.append((embedding, meta["quality"]))
+            time.sleep(0.35)
+        if len(candidates) < 3:
+            return {"ok": False, "samples": 0, "reason": "not_enough_good_face_samples"}
+        # Only commit after a consistent collection; no partial cross-person enrollment.
+        for embedding, quality in candidates:
+            self.add_embedding(
+                person_id, embedding, quality=quality, source="onboarding"
             )
-        )
-
-        if not person_id:
-            return {
-                "ok": False,
-                "person_id": None,
-                "name": name,
-                "samples": 0,
-                "reason": "invalid_name",
-            }
-
-        target = max(
-            3,
-            int(
-                samples
-            ),
-        )
-
-        deadline = (
-            time.monotonic()
-            + max(
-                3.0,
-                float(
-                    timeout
-                ),
-            )
-        )
-
-        added = 0
-        last_capture = 0.0
-
-        while (
-            time.monotonic()
-            < deadline
-            and added < target
-        ):
-            now = time.monotonic()
-
-            if (
-                now - last_capture
-                >= 0.35
-            ):
-                crop, meta = (
-                    vision.get_face_crop(
-                        min_quality=(
-                            self.min_face_quality
-                        )
-                    )
-                )
-
-                if (
-                    crop is not None
-                    and meta is not None
-                ):
-                    success = (
-                        self.add_face(
-                            person_id,
-                            crop,
-                            quality=float(
-                                meta.get(
-                                    "quality",
-                                    1.0,
-                                )
-                            ),
-                            source=(
-                                "onboarding"
-                            ),
-                        )
-                    )
-
-                    if success:
-                        added += 1
-
-                last_capture = now
-
-            time.sleep(
-                0.05
-            )
-
-        count = self.embedding_count(
-            person_id
-        )
-
-        ok = count >= 3
-
-        if ok:
-            reason = None
-        else:
-            reason = (
-                "not_enough_good_face_samples"
-            )
-
+        count = self.embedding_count(person_id)
         return {
-            "ok": ok,
+            "ok": count >= 3,
+            "samples": count,
             "person_id": person_id,
             "name": name,
-            "samples": count,
-            "reason": reason,
         }
 
     def reinforce_identity(
@@ -1209,19 +923,14 @@ class IdentityManager:
         occasionally after a strong match.
         """
 
-        crop, meta = (
-            vision.get_face_crop(
-                min_quality=max(
-                    self.min_face_quality,
-                    0.65,
-                )
+        crop, meta = vision.get_face_crop(
+            min_quality=max(
+                self.min_face_quality,
+                0.65,
             )
         )
 
-        if (
-            crop is None
-            or meta is None
-        ):
+        if crop is None or meta is None:
             return False
 
         return self.add_face(
@@ -1250,63 +959,39 @@ class IdentityManager:
                     DELETE FROM person_face_embeddings
                     WHERE person_id = ?
                     """,
-                    (
-                        person_id,
-                    ),
+                    (person_id,),
                 )
 
-        if (
-            self.last_result.person_id
-            == person_id
-        ):
+        if self.last_result.person_id == person_id:
             self.clear_current_identity()
 
-        return (
-            result.rowcount > 0
-        )
+        return result.rowcount > 0
 
-    def clear_current_identity(
-        self,
-    ):
-        self.last_result = (
-            IdentityResult(
-                None,
-                None,
-                0.0,
-                0.0,
-                "UNKNOWN",
-            )
+    def clear_current_identity(self):
+        self.track_results.clear()
+        self.last_result = IdentityResult(
+            None,
+            None,
+            0.0,
+            0.0,
+            "UNKNOWN",
         )
 
         self.last_result_at = 0.0
 
     def status(self):
-        people = (
-            self.memory.list_persons()
-        )
+        people = self.memory.list_persons()
 
         return {
             "available": self.available,
             "backend": self.backend,
             "model_path": self.model_path,
-            "known_people": len(
-                people
-            ),
-            "match_threshold": (
-                self.match_threshold
-            ),
-            "strong_match_threshold": (
-                self.strong_match_threshold
-            ),
-            "ambiguity_margin": (
-                self.ambiguity_margin
-            ),
-            "min_face_quality": (
-                self.min_face_quality
-            ),
-            "current_identity": (
-                self.last_result.as_dict()
-            ),
+            "known_people": len(people),
+            "match_threshold": (self.match_threshold),
+            "strong_match_threshold": (self.strong_match_threshold),
+            "ambiguity_margin": (self.ambiguity_margin),
+            "min_face_quality": (self.min_face_quality),
+            "current_identity": (self.last_result.as_dict()),
         }
 
     def export_debug_summary(
@@ -1315,22 +1000,12 @@ class IdentityManager:
         data = self.status()
         data["people"] = []
 
-        for person in (
-            self.memory.list_persons()
-        ):
+        for person in self.memory.list_persons():
             data["people"].append(
                 {
-                    "person_id": (
-                        person["id"]
-                    ),
-                    "name": (
-                        person["name"]
-                    ),
-                    "embeddings": (
-                        self.embedding_count(
-                            person["id"]
-                        )
-                    ),
+                    "person_id": (person["id"]),
+                    "name": (person["name"]),
+                    "embeddings": (self.embedding_count(person["id"])),
                 }
             )
 

@@ -1,0 +1,586 @@
+{
+  "enrollment": [
+    {
+      "quality": 0.934,
+      "embedding_ms": 87.05,
+      "dimensions": 128,
+      "added": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 36.14,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.936,
+      "embedding_ms": 41.08,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.935,
+      "embedding_ms": 38.24,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.936,
+      "embedding_ms": 39.71,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.936,
+      "embedding_ms": 38.59,
+      "dimensions": 128,
+      "added": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 40.17,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 48.19,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.933,
+      "embedding_ms": 42.88,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 36.8,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.935,
+      "embedding_ms": 42.98,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 39.84,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.935,
+      "embedding_ms": 40.11,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.936,
+      "embedding_ms": 38.96,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 38.2,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 37.93,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 38.19,
+      "dimensions": 128,
+      "added": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 41.06,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.929,
+      "embedding_ms": 40.4,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.928,
+      "embedding_ms": 39.04,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 38.15,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.927,
+      "embedding_ms": 43.12,
+      "dimensions": 128,
+      "added": true
+    },
+    {
+      "quality": 0.926,
+      "embedding_ms": 38.61,
+      "dimensions": 128,
+      "added": false
+    },
+    {
+      "quality": 0.925,
+      "embedding_ms": 39.22,
+      "dimensions": 128,
+      "added": true
+    }
+  ],
+  "validation": [
+    {
+      "quality": 0.932,
+      "embedding_ms": 40.9,
+      "match_ms": 4.05,
+      "status": "KNOWN",
+      "similarity": 0.961,
+      "same_profile": true
+    },
+    {
+      "quality": 0.935,
+      "embedding_ms": 38.86,
+      "match_ms": 4.08,
+      "status": "KNOWN",
+      "similarity": 0.9568,
+      "same_profile": true
+    },
+    {
+      "quality": 0.931,
+      "embedding_ms": 38.78,
+      "match_ms": 3.98,
+      "status": "KNOWN",
+      "similarity": 0.95,
+      "same_profile": true
+    },
+    {
+      "quality": 0.931,
+      "embedding_ms": 43.52,
+      "match_ms": 4.05,
+      "status": "KNOWN",
+      "similarity": 0.9396,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 38.88,
+      "match_ms": 3.46,
+      "status": "KNOWN",
+      "similarity": 0.9551,
+      "same_profile": true
+    },
+    {
+      "quality": 0.933,
+      "embedding_ms": 42.53,
+      "match_ms": 3.99,
+      "status": "KNOWN",
+      "similarity": 0.9507,
+      "same_profile": true
+    },
+    {
+      "quality": 0.933,
+      "embedding_ms": 39.46,
+      "match_ms": 4.03,
+      "status": "KNOWN",
+      "similarity": 0.9632,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 38.64,
+      "match_ms": 4.04,
+      "status": "KNOWN",
+      "similarity": 0.9577,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 40.05,
+      "match_ms": 3.97,
+      "status": "KNOWN",
+      "similarity": 0.9573,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 38.83,
+      "match_ms": 3.76,
+      "status": "KNOWN",
+      "similarity": 0.9591,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 37.09,
+      "match_ms": 5.19,
+      "status": "KNOWN",
+      "similarity": 0.9503,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 38.06,
+      "match_ms": 2.52,
+      "status": "KNOWN",
+      "similarity": 0.9594,
+      "same_profile": true
+    },
+    {
+      "quality": 0.933,
+      "embedding_ms": 41.24,
+      "match_ms": 2.19,
+      "status": "KNOWN",
+      "similarity": 0.9643,
+      "same_profile": true
+    },
+    {
+      "quality": 0.93,
+      "embedding_ms": 41.32,
+      "match_ms": 4.16,
+      "status": "KNOWN",
+      "similarity": 0.9672,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 47.77,
+      "match_ms": 4.3,
+      "status": "KNOWN",
+      "similarity": 0.971,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 38.87,
+      "match_ms": 4.09,
+      "status": "KNOWN",
+      "similarity": 0.9664,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 41.68,
+      "match_ms": 4.2,
+      "status": "KNOWN",
+      "similarity": 0.9715,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 40.39,
+      "match_ms": 4.18,
+      "status": "KNOWN",
+      "similarity": 0.9618,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 38.23,
+      "match_ms": 4.09,
+      "status": "KNOWN",
+      "similarity": 0.9655,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 40.22,
+      "match_ms": 4.12,
+      "status": "KNOWN",
+      "similarity": 0.9644,
+      "same_profile": true
+    },
+    {
+      "quality": 0.931,
+      "embedding_ms": 38.93,
+      "match_ms": 4.1,
+      "status": "KNOWN",
+      "similarity": 0.9684,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 44.35,
+      "match_ms": 3.75,
+      "status": "KNOWN",
+      "similarity": 0.9705,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 45.52,
+      "match_ms": 4.04,
+      "status": "KNOWN",
+      "similarity": 0.9709,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 40.37,
+      "match_ms": 3.72,
+      "status": "KNOWN",
+      "similarity": 0.97,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 40.09,
+      "match_ms": 17.24,
+      "status": "KNOWN",
+      "similarity": 0.9581,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 38.77,
+      "match_ms": 4.15,
+      "status": "KNOWN",
+      "similarity": 0.9658,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 40.41,
+      "match_ms": 4.1,
+      "status": "KNOWN",
+      "similarity": 0.9692,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 39.92,
+      "match_ms": 4.08,
+      "status": "KNOWN",
+      "similarity": 0.9687,
+      "same_profile": true
+    },
+    {
+      "quality": 0.928,
+      "embedding_ms": 41.62,
+      "match_ms": 4.37,
+      "status": "KNOWN",
+      "similarity": 0.9477,
+      "same_profile": true
+    },
+    {
+      "quality": 0.933,
+      "embedding_ms": 38.81,
+      "match_ms": 4.06,
+      "status": "KNOWN",
+      "similarity": 0.9586,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 46.42,
+      "match_ms": 2.91,
+      "status": "KNOWN",
+      "similarity": 0.9724,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 39.13,
+      "match_ms": 3.54,
+      "status": "KNOWN",
+      "similarity": 0.9608,
+      "same_profile": true
+    },
+    {
+      "quality": 0.931,
+      "embedding_ms": 38.96,
+      "match_ms": 4.09,
+      "status": "KNOWN",
+      "similarity": 0.9657,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 39.33,
+      "match_ms": 4.07,
+      "status": "KNOWN",
+      "similarity": 0.9507,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 40.1,
+      "match_ms": 4.03,
+      "status": "KNOWN",
+      "similarity": 0.9621,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 39.06,
+      "match_ms": 4.07,
+      "status": "KNOWN",
+      "similarity": 0.9614,
+      "same_profile": true
+    },
+    {
+      "quality": 0.935,
+      "embedding_ms": 42.55,
+      "match_ms": 4.17,
+      "status": "KNOWN",
+      "similarity": 0.9659,
+      "same_profile": true
+    },
+    {
+      "quality": 0.936,
+      "embedding_ms": 40.43,
+      "match_ms": 8.9,
+      "status": "KNOWN",
+      "similarity": 0.9554,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 44.0,
+      "match_ms": 4.25,
+      "status": "KNOWN",
+      "similarity": 0.9632,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 41.29,
+      "match_ms": 4.05,
+      "status": "KNOWN",
+      "similarity": 0.9581,
+      "same_profile": true
+    },
+    {
+      "quality": 0.931,
+      "embedding_ms": 44.44,
+      "match_ms": 4.45,
+      "status": "KNOWN",
+      "similarity": 0.9575,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 39.73,
+      "match_ms": 3.53,
+      "status": "KNOWN",
+      "similarity": 0.9595,
+      "same_profile": true
+    },
+    {
+      "quality": 0.931,
+      "embedding_ms": 41.56,
+      "match_ms": 4.08,
+      "status": "KNOWN",
+      "similarity": 0.95,
+      "same_profile": true
+    },
+    {
+      "quality": 0.93,
+      "embedding_ms": 41.21,
+      "match_ms": 4.06,
+      "status": "KNOWN",
+      "similarity": 0.9548,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 42.57,
+      "match_ms": 4.07,
+      "status": "KNOWN",
+      "similarity": 0.9572,
+      "same_profile": true
+    },
+    {
+      "quality": 0.932,
+      "embedding_ms": 42.69,
+      "match_ms": 3.87,
+      "status": "KNOWN",
+      "similarity": 0.9543,
+      "same_profile": true
+    },
+    {
+      "quality": 0.936,
+      "embedding_ms": 46.84,
+      "match_ms": 4.05,
+      "status": "KNOWN",
+      "similarity": 0.9452,
+      "same_profile": true
+    },
+    {
+      "quality": 0.933,
+      "embedding_ms": 42.26,
+      "match_ms": 3.75,
+      "status": "KNOWN",
+      "similarity": 0.9427,
+      "same_profile": true
+    },
+    {
+      "quality": 0.937,
+      "embedding_ms": 40.65,
+      "match_ms": 3.95,
+      "status": "KNOWN",
+      "similarity": 0.9344,
+      "same_profile": true
+    },
+    {
+      "quality": 0.934,
+      "embedding_ms": 38.16,
+      "match_ms": 4.08,
+      "status": "KNOWN",
+      "similarity": 0.9379,
+      "same_profile": true
+    },
+    {
+      "quality": 0.935,
+      "embedding_ms": 38.99,
+      "match_ms": 9.27,
+      "status": "KNOWN",
+      "similarity": 0.9286,
+      "same_profile": true
+    },
+    {
+      "quality": 0.938,
+      "embedding_ms": 41.06,
+      "match_ms": 3.14,
+      "status": "KNOWN",
+      "similarity": 0.927,
+      "same_profile": true
+    },
+    {
+      "quality": 0.936,
+      "embedding_ms": 36.95,
+      "match_ms": 3.77,
+      "status": "KNOWN",
+      "similarity": 0.9226,
+      "same_profile": true
+    }
+  ],
+  "rejected_frames": 0,
+  "multiple_faces": 0,
+  "no_face": 10,
+  "samples": 5,
+  "vision": {
+    "frames": 1134,
+    "face_calls": 117,
+    "object_calls": 29,
+    "face_ms": 12.99,
+    "object_ms": 15.95,
+    "elapsed_sec": 43.673164745999884
+  }
+}

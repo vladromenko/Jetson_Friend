@@ -8,14 +8,80 @@ import uuid
 
 
 STOPWORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by",
-    "can", "could", "did", "do", "does", "for", "from", "had", "has", "have",
-    "he", "her", "here", "hers", "him", "his", "how", "i", "if", "in", "is",
-    "it", "its", "me", "my", "of", "on", "or", "our", "ours", "say", "she",
-    "should", "so", "tell", "than", "that", "the", "their", "theirs", "them",
-    "then", "there", "these", "they", "this", "those", "to", "was", "we",
-    "were", "what", "when", "where", "which", "who", "why", "will", "with",
-    "would", "you", "your", "yours",
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "been",
+    "being",
+    "but",
+    "by",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "for",
+    "from",
+    "had",
+    "has",
+    "have",
+    "he",
+    "her",
+    "here",
+    "hers",
+    "him",
+    "his",
+    "how",
+    "i",
+    "if",
+    "in",
+    "is",
+    "it",
+    "its",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "our",
+    "ours",
+    "say",
+    "she",
+    "should",
+    "so",
+    "tell",
+    "than",
+    "that",
+    "the",
+    "their",
+    "theirs",
+    "them",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "to",
+    "was",
+    "we",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "will",
+    "with",
+    "would",
+    "you",
+    "your",
+    "yours",
 }
 
 
@@ -52,11 +118,7 @@ class Memory:
     def __init__(self):
         root = os.getenv(
             "JETSON_FRIEND_ROOT",
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.abspath(__file__)
-                )
-            ),
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         )
 
         data_dir = os.path.join(
@@ -78,7 +140,8 @@ class Memory:
 
         self._create_database()
         self._migrate_database()
-        self._migrate_legacy_person()
+        # Legacy rows remain unassigned until an operator explicitly migrates them.
+        self.set_current_person(None)
 
     def _connect(self):
         db = sqlite3.connect(
@@ -88,17 +151,11 @@ class Memory:
 
         db.row_factory = sqlite3.Row
 
-        db.execute(
-            "PRAGMA foreign_keys = ON"
-        )
+        db.execute("PRAGMA foreign_keys = ON")
 
-        db.execute(
-            "PRAGMA journal_mode = WAL"
-        )
+        db.execute("PRAGMA journal_mode = WAL")
 
-        db.execute(
-            "PRAGMA synchronous = NORMAL"
-        )
+        db.execute("PRAGMA synchronous = NORMAL")
 
         return db
 
@@ -189,14 +246,9 @@ class Memory:
         db,
         table,
     ):
-        rows = db.execute(
-            f"PRAGMA table_info({table})"
-        )
+        rows = db.execute(f"PRAGMA table_info({table})")
 
-        return {
-            row["name"]
-            for row in rows
-        }
+        return {row["name"] for row in rows}
 
     def _migrate_database(self):
         """
@@ -216,13 +268,13 @@ class Memory:
                     "normalized_text": "TEXT",
                     "expires_at": "REAL",
                     "confidence": "REAL NOT NULL DEFAULT 1.0",
+                    "fact_key": "TEXT",
                 }
 
                 for column, definition in additions.items():
                     if column not in memory_columns:
                         db.execute(
-                            f"ALTER TABLE memories "
-                            f"ADD COLUMN {column} {definition}"
+                            f"ALTER TABLE memories ADD COLUMN {column} {definition}"
                         )
 
                 object_columns = self._columns(
@@ -231,10 +283,7 @@ class Memory:
                 )
 
                 if "owner_person_id" not in object_columns:
-                    db.execute(
-                        "ALTER TABLE objects "
-                        "ADD COLUMN owner_person_id TEXT"
-                    )
+                    db.execute("ALTER TABLE objects ADD COLUMN owner_person_id TEXT")
 
                 event_columns = self._columns(
                     db,
@@ -242,10 +291,7 @@ class Memory:
                 )
 
                 if "person_id" not in event_columns:
-                    db.execute(
-                        "ALTER TABLE events "
-                        "ADD COLUMN person_id TEXT"
-                    )
+                    db.execute("ALTER TABLE events ADD COLUMN person_id TEXT")
 
                 rows = db.execute(
                     """
@@ -257,9 +303,7 @@ class Memory:
                 ).fetchall()
 
                 for row in rows:
-                    normalized = self._normalize_text(
-                        row["text"]
-                    )
+                    normalized = self._normalize_text(row["text"])
 
                     db.execute(
                         """
@@ -324,9 +368,7 @@ class Memory:
                         WHERE id = ?
                           AND active = 1
                         """,
-                        (
-                            current_id,
-                        ),
+                        (current_id,),
                     ).fetchone()
 
                     if row is not None:
@@ -343,9 +385,7 @@ class Memory:
                 if row is None:
                     return
 
-                name = self._normalize_name(
-                    row["value"]
-                )
+                name = self._normalize_name(row["value"])
 
                 if not name:
                     return
@@ -358,15 +398,11 @@ class Memory:
                       AND active = 1
                     LIMIT 1
                     """,
-                    (
-                        name,
-                    ),
+                    (name,),
                 ).fetchone()
 
                 if person is None:
-                    person_id = str(
-                        uuid.uuid4()
-                    )
+                    person_id = str(uuid.uuid4())
 
                     now = time.time()
 
@@ -400,9 +436,7 @@ class Memory:
                     SET person_id = ?
                     WHERE person_id IS NULL
                     """,
-                    (
-                        person_id,
-                    ),
+                    (person_id,),
                 )
 
                 db.execute(
@@ -411,9 +445,7 @@ class Memory:
                     SET person_id = ?
                     WHERE person_id IS NULL
                     """,
-                    (
-                        person_id,
-                    ),
+                    (person_id,),
                 )
 
                 self._set_setting_db(
@@ -426,19 +458,13 @@ class Memory:
     def _normalize_name(
         name,
     ):
-        return " ".join(
-            str(name)
-            .strip()
-            .split()
-        )
+        return " ".join(str(name).strip().split())
 
     @staticmethod
     def _normalize_text(
         text,
     ):
-        text = str(
-            text
-        ).strip().lower()
+        text = str(text).strip().lower()
 
         text = re.sub(
             r"[^\w\s']",
@@ -447,9 +473,7 @@ class Memory:
             flags=re.UNICODE,
         )
 
-        return " ".join(
-            text.split()
-        )
+        return " ".join(text.split())
 
     @staticmethod
     def _keywords(
@@ -460,14 +484,7 @@ class Memory:
             str(text).lower(),
         )
 
-        return {
-            word
-            for word in words
-            if (
-                len(word) >= 3
-                and word not in STOPWORDS
-            )
-        }
+        return {word for word in words if (len(word) >= 3 and word not in STOPWORDS)}
 
     @staticmethod
     def _clamp(
@@ -475,9 +492,7 @@ class Memory:
         default=0.5,
     ):
         try:
-            number = float(
-                value
-            )
+            number = float(value)
 
         except (
             TypeError,
@@ -511,9 +526,7 @@ class Memory:
             """,
             (
                 str(key),
-                json.dumps(
-                    value
-                ),
+                json.dumps(value),
             ),
         )
 
@@ -529,18 +542,14 @@ class Memory:
             FROM settings
             WHERE key = ?
             """,
-            (
-                str(key),
-            ),
+            (str(key),),
         ).fetchone()
 
         if row is None:
             return default
 
         try:
-            return json.loads(
-                row["value"]
-            )
+            return json.loads(row["value"])
 
         except Exception:
             return default
@@ -549,106 +558,20 @@ class Memory:
     # PEOPLE
     # ============================================================
 
-    def create_person(
-        self,
-        name,
-        make_current=True,
-    ):
-        name = self._normalize_name(
-            name
-        )
-
+    def create_person(self, name, make_current=True):
+        name = self._normalize_name(name)
         if not name:
             return None
-
+        person_id = str(uuid.uuid4())
         now = time.time()
-
-        with self.lock:
-            with self._connect() as db:
-                row = db.execute(
-                    """
-                    SELECT id
-                    FROM persons
-                    WHERE lower(name) = lower(?)
-                      AND active = 1
-                    LIMIT 1
-                    """,
-                    (
-                        name,
-                    ),
-                ).fetchone()
-
-                if row is None:
-                    person_id = str(
-                        uuid.uuid4()
-                    )
-
-                    db.execute(
-                        """
-                        INSERT INTO persons(
-                            id,
-                            name,
-                            created,
-                            updated,
-                            last_seen,
-                            active
-                        )
-                        VALUES (?, ?, ?, ?, ?, 1)
-                        """,
-                        (
-                            person_id,
-                            name,
-                            now,
-                            now,
-                            now,
-                        ),
-                    )
-
-                else:
-                    person_id = row["id"]
-
-                    db.execute(
-                        """
-                        UPDATE persons
-                        SET name = ?,
-                            updated = ?,
-                            last_seen = ?
-                        WHERE id = ?
-                        """,
-                        (
-                            name,
-                            now,
-                            now,
-                            person_id,
-                        ),
-                    )
-
-                if make_current:
-                    self._set_setting_db(
-                        db,
-                        "current_person_id",
-                        person_id,
-                    )
-
-                    db.execute(
-                        """
-                        INSERT INTO profile(
-                            key,
-                            value,
-                            updated
-                        )
-                        VALUES ('name', ?, ?)
-                        ON CONFLICT(key) DO UPDATE SET
-                            value = excluded.value,
-                            updated = excluded.updated
-                        """,
-                        (
-                            name,
-                            now,
-                        ),
-                    )
-
-                return person_id
+        with self.lock, self._connect() as db:
+            db.execute(
+                "INSERT INTO persons(id,name,created,updated,last_seen,active) VALUES (?,?,?,?,?,1)",
+                (person_id, name, now, now, now),
+            )
+        if make_current:
+            self.set_current_person(person_id)
+        return person_id
 
     def get_person(
         self,
@@ -666,25 +589,19 @@ class Memory:
                     WHERE id = ?
                       AND active = 1
                     """,
-                    (
-                        person_id,
-                    ),
+                    (person_id,),
                 ).fetchone()
 
         if row is None:
             return None
 
-        return dict(
-            row
-        )
+        return dict(row)
 
     def find_person_by_name(
         self,
         name,
     ):
-        name = self._normalize_name(
-            name
-        )
+        name = self._normalize_name(name)
 
         if not name:
             return None
@@ -699,17 +616,13 @@ class Memory:
                       AND active = 1
                     LIMIT 1
                     """,
-                    (
-                        name,
-                    ),
+                    (name,),
                 ).fetchone()
 
         if row is None:
             return None
 
-        return dict(
-            row
-        )
+        return dict(row)
 
     def list_persons(
         self,
@@ -727,64 +640,13 @@ class Memory:
                     """
                 ).fetchall()
 
-        return [
-            dict(row)
-            for row in rows
-        ]
+        return [dict(row) for row in rows]
 
-    def set_current_person(
-        self,
-        person_id,
-    ):
-        person = self.get_person(
-            person_id
-        )
-
-        if person is None:
+    def set_current_person(self, person_id):
+        if person_id is not None and self.get_person(person_id) is None:
             return False
-
-        now = time.time()
-
-        with self.lock:
-            with self._connect() as db:
-                self._set_setting_db(
-                    db,
-                    "current_person_id",
-                    person_id,
-                )
-
-                db.execute(
-                    """
-                    UPDATE persons
-                    SET updated = ?,
-                        last_seen = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        now,
-                        now,
-                        person_id,
-                    ),
-                )
-
-                db.execute(
-                    """
-                    INSERT INTO profile(
-                        key,
-                        value,
-                        updated
-                    )
-                    VALUES ('name', ?, ?)
-                    ON CONFLICT(key) DO UPDATE SET
-                        value = excluded.value,
-                        updated = excluded.updated
-                    """,
-                    (
-                        person["name"],
-                        now,
-                    ),
-                )
-
+        with self.lock, self._connect() as db:
+            self._set_setting_db(db, "current_person_id", person_id)
         return True
 
     def get_current_person_id(
@@ -807,9 +669,7 @@ class Memory:
                     WHERE id = ?
                       AND active = 1
                     """,
-                    (
-                        person_id,
-                    ),
+                    (person_id,),
                 ).fetchone()
 
         if row is None:
@@ -820,9 +680,7 @@ class Memory:
     def get_current_person(
         self,
     ):
-        return self.get_person(
-            self.get_current_person_id()
-        )
+        return self.get_person(self.get_current_person_id())
 
     def touch_person(
         self,
@@ -850,111 +708,42 @@ class Memory:
                     ),
                 )
 
-                return (
-                    result.rowcount > 0
-                )
+                return result.rowcount > 0
 
-    def forget_person(
-        self,
-        person_id,
-    ):
+    def forget_person(self, person_id):
         if not person_id:
             return False
-
-        now = time.time()
-
-        with self.lock:
-            with self._connect() as db:
-                row = db.execute(
-                    """
-                    SELECT id
-                    FROM persons
-                    WHERE id = ?
-                      AND active = 1
-                    """,
-                    (
-                        person_id,
-                    ),
-                ).fetchone()
-
-                if row is None:
-                    return False
-
-                db.execute(
-                    """
-                    UPDATE memories
-                    SET active = 0,
-                        updated = ?
-                    WHERE person_id = ?
-                    """,
-                    (
-                        now,
-                        person_id,
-                    ),
-                )
-
-                db.execute(
-                    """
-                    DELETE FROM temporary_states
-                    WHERE person_id = ?
-                    """,
-                    (
-                        person_id,
-                    ),
-                )
-
-                db.execute(
-                    """
-                    DELETE FROM person_profiles
-                    WHERE person_id = ?
-                    """,
-                    (
-                        person_id,
-                    ),
-                )
-
-                db.execute(
-                    """
-                    UPDATE persons
-                    SET active = 0,
-                        updated = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        now,
-                        person_id,
-                    ),
-                )
-
-                current_id = self._get_setting_db(
-                    db,
-                    "current_person_id",
-                )
-
-                if current_id == person_id:
-                    self._set_setting_db(
-                        db,
-                        "current_person_id",
-                        None,
-                    )
-
-                    db.execute(
-                        """
-                        DELETE FROM profile
-                        WHERE key = 'name'
-                        """
-                    )
-
+        with self.lock, self._connect() as db:
+            if not db.execute(
+                "SELECT id FROM persons WHERE id=?", (person_id,)
+            ).fetchone():
+                return False
+            for table in (
+                "memories",
+                "events",
+                "temporary_states",
+                "person_profiles",
+                "person_face_embeddings",
+            ):
+                if db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,),
+                ).fetchone():
+                    db.execute(f"DELETE FROM {table} WHERE person_id=?", (person_id,))
+            db.execute(
+                "UPDATE objects SET owner_person_id=NULL WHERE owner_person_id=?",
+                (person_id,),
+            )
+            db.execute("DELETE FROM persons WHERE id=?", (person_id,))
+            if self._get_setting_db(db, "current_person_id") == person_id:
+                self._set_setting_db(db, "current_person_id", None)
+            # Old global profile is not a reliable identity source.
+            db.execute("DELETE FROM profile")
         return True
 
-    def _resolve_person_id(
-        self,
-        person_id=None,
-    ):
-        if person_id:
-            return person_id
-
-        return self.get_current_person_id()
+    def _resolve_person_id(self, person_id=None):
+        # None means UNKNOWN. Never silently inherit a different live interaction.
+        return person_id if person_id and self.get_person(person_id) else None
 
     # ============================================================
     # PROFILE
@@ -966,21 +755,14 @@ class Memory:
         value,
         person_id=None,
     ):
-        key = str(
-            key
-        ).strip()
+        key = str(key).strip()
 
         if not key:
             return
 
-        resolved = self._resolve_person_id(
-            person_id
-        )
+        resolved = self._resolve_person_id(person_id)
 
-        if (
-            key == "name"
-            and not resolved
-        ):
+        if key == "name" and not resolved:
             resolved = self.create_person(
                 value,
                 make_current=True,
@@ -1031,10 +813,7 @@ class Memory:
                     ),
                 )
 
-                if (
-                    key == "name"
-                    and resolved
-                ):
+                if key == "name" and resolved:
                     db.execute(
                         """
                         UPDATE persons
@@ -1043,78 +822,26 @@ class Memory:
                         WHERE id = ?
                         """,
                         (
-                            self._normalize_name(
-                                value
-                            ),
+                            self._normalize_name(value),
                             now,
                             resolved,
                         ),
                     )
 
-    def get_profile(
-        self,
-        key,
-        default=None,
-        person_id=None,
-    ):
-        key = str(
-            key
-        ).strip()
-
-        resolved = self._resolve_person_id(
-            person_id
-        )
-
-        with self.lock:
-            with self._connect() as db:
-                if resolved:
-                    row = db.execute(
-                        """
-                        SELECT value
-                        FROM person_profiles
-                        WHERE person_id = ?
-                          AND key = ?
-                        """,
-                        (
-                            resolved,
-                            key,
-                        ),
-                    ).fetchone()
-
-                    if row is not None:
-                        return row["value"]
-
-                    if key == "name":
-                        row = db.execute(
-                            """
-                            SELECT name
-                            FROM persons
-                            WHERE id = ?
-                              AND active = 1
-                            """,
-                            (
-                                resolved,
-                            ),
-                        ).fetchone()
-
-                        if row is not None:
-                            return row["name"]
-
-                row = db.execute(
-                    """
-                    SELECT value
-                    FROM profile
-                    WHERE key = ?
-                    """,
-                    (
-                        key,
-                    ),
-                ).fetchone()
-
-        if row is None:
+    def get_profile(self, key, default=None, person_id=None):
+        resolved = self._resolve_person_id(person_id)
+        if not resolved:
             return default
-
-        return row["value"]
+        with self.lock, self._connect() as db:
+            row = db.execute(
+                "SELECT value FROM person_profiles WHERE person_id=? AND key=?",
+                (resolved, str(key)),
+            ).fetchone()
+        if row:
+            return row["value"]
+        if key == "name":
+            return self.get_person(resolved)["name"]
+        return default
 
     # ============================================================
     # LONG-TERM MEMORY
@@ -1130,21 +857,16 @@ class Memory:
         person_id=None,
         confidence=1.0,
         expires_at=None,
+        fact_key=None,
     ):
-        text = str(
-            text
-        ).strip()
+        text = str(text).strip()
 
         if not text:
             return None
 
-        kind = str(
-            kind or "fact"
-        ).strip().lower()[:30]
+        kind = str(kind or "fact").strip().lower()[:30]
 
-        emotion = str(
-            emotion or "neutral"
-        ).strip().lower()[:30]
+        emotion = str(emotion or "neutral").strip().lower()[:30]
 
         importance = self._clamp(
             importance,
@@ -1156,9 +878,12 @@ class Memory:
             1.0,
         )
 
-        resolved = self._resolve_person_id(
-            person_id
-        )
+        resolved = self._resolve_person_id(person_id)
+
+        if not resolved and source != "global":
+            return None
+        if confidence < 0.7:
+            return None
 
         # Emotions and moods should not normally become permanent facts.
         if kind in TEMPORARY_KINDS:
@@ -1180,9 +905,7 @@ class Memory:
         if kind not in LONG_TERM_KINDS:
             kind = "fact"
 
-        normalized = self._normalize_text(
-            text
-        )
+        normalized = self._normalize_text(text)
 
         if not normalized:
             return None
@@ -1191,6 +914,11 @@ class Memory:
 
         with self.lock:
             with self._connect() as db:
+                if fact_key and resolved:
+                    db.execute(
+                        "UPDATE memories SET active=0, updated=? WHERE person_id=? AND fact_key=? AND normalized_text != ?",
+                        (now, resolved, fact_key, normalized),
+                    )
                 if resolved:
                     existing = db.execute(
                         """
@@ -1223,9 +951,7 @@ class Memory:
                           AND normalized_text = ?
                         LIMIT 1
                         """,
-                        (
-                            normalized,
-                        ),
+                        (normalized,),
                     ).fetchone()
 
                 if existing is not None:
@@ -1247,21 +973,12 @@ class Memory:
                             emotion,
                             max(
                                 importance,
-                                float(
-                                    existing[
-                                        "importance"
-                                    ]
-                                ),
+                                float(existing["importance"]),
                             ),
                             str(source)[:50],
                             max(
                                 confidence,
-                                float(
-                                    existing[
-                                        "confidence"
-                                    ]
-                                    or 0.0
-                                ),
+                                float(existing["confidence"] or 0.0),
                             ),
                             expires_at,
                             existing["id"],
@@ -1306,62 +1023,28 @@ class Memory:
                     ),
                 )
 
+                if fact_key:
+                    db.execute(
+                        "UPDATE memories SET fact_key=? WHERE id=?",
+                        (fact_key, cursor.lastrowid),
+                    )
                 return cursor.lastrowid
 
-    def forget_last(
-        self,
-        person_id=None,
-    ):
-        resolved = self._resolve_person_id(
-            person_id
-        )
-
-        with self.lock:
-            with self._connect() as db:
-                if resolved:
-                    row = db.execute(
-                        """
-                        SELECT id, text
-                        FROM memories
-                        WHERE active = 1
-                          AND person_id = ?
-                        ORDER BY id DESC
-                        LIMIT 1
-                        """,
-                        (
-                            resolved,
-                        ),
-                    ).fetchone()
-
-                else:
-                    row = db.execute(
-                        """
-                        SELECT id, text
-                        FROM memories
-                        WHERE active = 1
-                          AND person_id IS NULL
-                        ORDER BY id DESC
-                        LIMIT 1
-                        """
-                    ).fetchone()
-
-                if row is None:
-                    return None
-
-                db.execute(
-                    """
-                    UPDATE memories
-                    SET active = 0,
-                        updated = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        time.time(),
-                        row["id"],
-                    ),
-                )
-
-                return row["text"]
+    def forget_last(self, person_id=None):
+        resolved = self._resolve_person_id(person_id)
+        if not resolved:
+            return None
+        with self.lock, self._connect() as db:
+            row = db.execute(
+                "SELECT id,text FROM memories WHERE person_id=? AND active=1 ORDER BY updated DESC,id DESC LIMIT 1",
+                (resolved,),
+            ).fetchone()
+            if not row:
+                return None
+            db.execute(
+                "DELETE FROM memories WHERE id=? AND person_id=?", (row["id"], resolved)
+            )
+            return row["text"]
 
     def search(
         self,
@@ -1381,13 +1064,9 @@ class Memory:
         It cannot force an unrelated memory into the prompt.
         """
 
-        resolved = self._resolve_person_id(
-            person_id
-        )
+        resolved = self._resolve_person_id(person_id)
 
-        query_words = self._keywords(
-            query
-        )
+        query_words = self._keywords(query)
 
         if not query_words:
             return []
@@ -1404,7 +1083,7 @@ class Memory:
                         WHERE active = 1
                           AND (
                               person_id = ?
-                              OR person_id IS NULL
+                              OR (person_id IS NULL AND source = 'global')
                           )
                           AND (
                               expires_at IS NULL
@@ -1425,7 +1104,7 @@ class Memory:
                         SELECT *
                         FROM memories
                         WHERE active = 1
-                          AND person_id IS NULL
+                          AND person_id IS NULL AND source = 'global'
                           AND (
                               expires_at IS NULL
                               OR expires_at > ?
@@ -1433,55 +1112,30 @@ class Memory:
                         ORDER BY updated DESC
                         LIMIT 120
                         """,
-                        (
-                            now,
-                        ),
+                        (now,),
                     ).fetchall()
 
         scored = []
 
         for row in rows:
-            memory_words = self._keywords(
-                row["text"]
-            )
+            memory_words = self._keywords(row["text"])
 
-            overlap = (
-                query_words
-                & memory_words
-            )
+            overlap = query_words & memory_words
 
             if overlap:
-                union = (
-                    query_words
-                    | memory_words
-                )
+                union = query_words | memory_words
 
-                lexical = (
-                    len(overlap)
-                    / max(
-                        1,
-                        len(union),
-                    )
+                lexical = len(overlap) / max(
+                    1,
+                    len(union),
                 )
 
                 age_days = max(
                     0.0,
-                    (
-                        now
-                        - float(
-                            row["updated"]
-                        )
-                    )
-                    / 86400.0,
+                    (now - float(row["updated"])) / 86400.0,
                 )
 
-                recency = (
-                    1.0
-                    / (
-                        1.0
-                        + age_days / 30.0
-                    )
-                )
+                recency = 1.0 / (1.0 + age_days / 30.0)
 
                 importance = self._clamp(
                     row["importance"],
@@ -1527,7 +1181,7 @@ class Memory:
         return [
             item[1]
             for item in scored[
-                :max(
+                : max(
                     1,
                     int(limit),
                 )
@@ -1547,16 +1201,10 @@ class Memory:
         )
 
         if not memories:
-            return (
-                "No relevant long-term memories."
-            )
+            return "No relevant long-term memories."
 
         return "\n".join(
-            (
-                f"- {item['text']} "
-                f"[type={item['kind']}]"
-            )
-            for item in memories
+            (f"- {item['text']} [type={item['kind']}]") for item in memories
         )
 
     def describe_person(
@@ -1564,15 +1212,10 @@ class Memory:
         limit=20,
         person_id=None,
     ):
-        resolved = self._resolve_person_id(
-            person_id
-        )
+        resolved = self._resolve_person_id(person_id)
 
         if not resolved:
-            return (
-                "I do not know which person "
-                "you mean yet."
-            )
+            return "I do not know which person you mean yet."
 
         now = time.time()
 
@@ -1604,15 +1247,9 @@ class Memory:
                 ).fetchall()
 
         if not rows:
-            return (
-                "I do not have any long-term "
-                "memories about you yet."
-            )
+            return "I do not have any long-term memories about you yet."
 
-        return "\n".join(
-            "- " + row["text"]
-            for row in rows
-        )
+        return "\n".join("- " + row["text"] for row in rows)
 
     # ============================================================
     # TEMPORARY STATE / EMOTION
@@ -1627,18 +1264,11 @@ class Memory:
         source="conversation",
         ttl_seconds=3 * 3600,
     ):
-        resolved = self._resolve_person_id(
-            person_id
-        )
+        resolved = self._resolve_person_id(person_id)
 
-        key = str(
-            key
-        ).strip()
+        key = str(key).strip()
 
-        if (
-            not resolved
-            or not key
-        ):
+        if not resolved or not key:
             return False
 
         now = time.time()
@@ -1647,14 +1277,9 @@ class Memory:
             expires_at = None
 
         else:
-            expires_at = (
-                now
-                + max(
-                    1.0,
-                    float(
-                        ttl_seconds
-                    ),
-                )
+            expires_at = now + max(
+                1.0,
+                float(ttl_seconds),
             )
 
         encoded = json.dumps(
@@ -1708,9 +1333,7 @@ class Memory:
         person_id=None,
         min_confidence=0.0,
     ):
-        resolved = self._resolve_person_id(
-            person_id
-        )
+        resolved = self._resolve_person_id(person_id)
 
         if not resolved:
             return default
@@ -1734,10 +1357,7 @@ class Memory:
                     return default
 
                 expired = (
-                    row["expires_at"]
-                    is not None
-                    and row["expires_at"]
-                    <= time.time()
+                    row["expires_at"] is not None and row["expires_at"] <= time.time()
                 )
 
                 if expired:
@@ -1755,20 +1375,11 @@ class Memory:
 
                     return default
 
-                if (
-                    float(
-                        row["confidence"]
-                    )
-                    < float(
-                        min_confidence
-                    )
-                ):
+                if float(row["confidence"]) < float(min_confidence):
                     return default
 
         try:
-            return json.loads(
-                row["value"]
-            )
+            return json.loads(row["value"])
 
         except Exception:
             return row["value"]
@@ -1778,9 +1389,7 @@ class Memory:
         key=None,
         person_id=None,
     ):
-        resolved = self._resolve_person_id(
-            person_id
-        )
+        resolved = self._resolve_person_id(person_id)
 
         if not resolved:
             return
@@ -1793,9 +1402,7 @@ class Memory:
                         DELETE FROM temporary_states
                         WHERE person_id = ?
                         """,
-                        (
-                            resolved,
-                        ),
+                        (resolved,),
                     )
 
                 else:
@@ -1824,9 +1431,7 @@ class Memory:
                     WHERE expires_at IS NOT NULL
                       AND expires_at <= ?
                     """,
-                    (
-                        now,
-                    ),
+                    (now,),
                 )
 
                 db.execute(
@@ -1855,9 +1460,7 @@ class Memory:
         confidence=None,
         owner_person_id=None,
     ):
-        name = str(
-            name
-        ).strip().lower()
+        name = str(name).strip().lower()
 
         if not name:
             return
@@ -1881,9 +1484,7 @@ class Memory:
                     FROM objects
                     WHERE name = ?
                     """,
-                    (
-                        name,
-                    ),
+                    (name,),
                 ).fetchone()
 
                 if existing is None:
@@ -1938,9 +1539,7 @@ class Memory:
         name,
         owner_person_id=None,
     ):
-        name = str(
-            name
-        ).strip().lower()
+        name = str(name).strip().lower()
 
         if not name:
             return None
@@ -1982,17 +1581,13 @@ class Memory:
                         ORDER BY last_seen DESC
                         LIMIT 1
                         """,
-                        (
-                            "%" + name + "%",
-                        ),
+                        ("%" + name + "%",),
                     ).fetchone()
 
         if row is None:
             return None
 
-        return dict(
-            row
-        )
+        return dict(row)
 
     # ============================================================
     # EVENTS
@@ -2005,9 +1600,7 @@ class Memory:
         importance=0.3,
         person_id=None,
     ):
-        resolved = self._resolve_person_id(
-            person_id
-        )
+        resolved = self._resolve_person_id(person_id)
 
         with self.lock:
             with self._connect() as db:
