@@ -51,14 +51,13 @@ class EmotionManager:
     """
 
     DEFAULT_LABELS = [
-        "neutral",
-        "happy",
-        "surprised",
-        "sad",
         "angry",
         "disgusted",
         "fearful",
-        "contempt",
+        "happy",
+        "sad",
+        "surprised",
+        "neutral",
     ]
 
     def __init__(
@@ -337,10 +336,15 @@ class EmotionManager:
                 cv2.COLOR_BGR2GRAY,
             )
 
-            # FER+ expects a raw grayscale 64x64 tensor.
-            # Keep pixel values in their original 0..255 range.
-            face = face.astype(
-                np.float32
+            face = cv2.equalizeHist(
+                face
+            )
+
+            face = (
+                face.astype(
+                    np.float32
+                )
+                / 255.0
             )
 
             blob = face[

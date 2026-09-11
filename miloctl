@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT="${JETSON_FRIEND_ROOT:-$HOME/Jetson_Friend}"
+cd "$ROOT"
+
+cmd="${1:-help}"
+arg="${2:-}"
+
+case "$cmd" in
+  status)
+    echo "MILO process:"
+    pgrep -af 'src/main.py' || true
+    echo
+    echo "Control panel:"
+    systemctl --user --no-pager status milo-control.service 2>/dev/null | sed -n '1,12p' || true
+    echo
+    grep -E '^(ACTIVE_TEXT_MODEL|LLM_MODEL|ACTIVE_VLM_MODEL|VLM_MODEL|VLM_MMPROJ)=' config.env || true
+    ;;
+  start)
+    nohup ./start.sh >> milo_runtime.log 2>&1 &
+    ;;
+  stop)
+    pkill -f 'src/main.py' || true
+    ;;
+  restart)
+    pkill -f 'src/main.py' || true
+    sleep 1
+    nohup ./start.sh >> milo_runtime.log 2>&1 &
+    ;;
+  models)
+    ./.venv/bin/python src/model_downloader.py list
+    ;;
+  download)
+    [ -n "$arg" ] || { echo "Usage: ./miloctl download <model-id>"; exit 2; }
+    ./.venv/bin/python src/model_downloader.py download "$arg"
+    ;;
+  select-text)
+    [ -n "$arg" ] || { echo "Usage: ./miloctl select-text <model-id>"; exit 2; }
+    ./.venv/bin/python -c "import sys;sys.path.insert(0,'src');from model_manager import ModelManager;print(ModelManager().select_text('$arg'))"
+    ;;
+  select-vlm)
+    [ -n "$arg" ] || { echo "Usage: ./miloctl select-vlm <model-id>"; exit 2; }
+    ./.venv/bin/python -c "import sys;sys.path.insert(0,'src');from model_manager import ModelManager;print(ModelManager().select_vlm('$arg'))"
+    ;;
+  panel-start)
+    systemctl --user daemon-reload
+    systemctl --user enable --now milo-control.service
+    ;;
+  panel-stop)
+    systemctl --user disable --now milo-control.service
+    ;;
+  *)
+    echo "MILO control"
+    echo "  ./miloctl status"
+    echo "  ./miloctl start|stop|restart"
+    echo "  ./miloctl models"
+    echo "  ./miloctl download <model-id>"
+    echo "  ./miloctl select-text <model-id>"
+    echo "  ./miloctl select-vlm <model-id>"
+    echo "  ./miloctl panel-start|panel-stop"
+    ;;
+esac

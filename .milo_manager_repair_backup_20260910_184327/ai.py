@@ -1157,7 +1157,7 @@ class HughAI:
             return {
                 "text": raw,
                 "emotion": "neutral",
-                "memory": {},
+                "memory": None,
             }
 
         except Exception as exc:
@@ -1172,7 +1172,7 @@ class HughAI:
                     "visual model failed on that request."
                 ),
                 "emotion": "concerned",
-                "memory": {},
+                "memory": None,
             }
 
         finally:

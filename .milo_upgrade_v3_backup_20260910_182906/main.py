@@ -89,10 +89,8 @@ def looks_visual(text):
             (
                 r"\b("
                 r"see|seeing|look|looking|camera|face|"
-                r"wearing|holding|room|around me|surroundings|"
-                r"describe me|describe what|describe the|"
-                r"in front of you|what is this|what's this|"
-                r"what am i holding|what do i have|who is here"
+                r"wearing|holding|room|around me|"
+                r"in front of you|what is this|who is here"
                 r")\b"
             ),
             text,
@@ -1216,15 +1214,15 @@ def main():
 
                         if (
                             explicit_emotion
+                            and person_id
                             and not args.no_emotion
                         ):
-                            if person_id:
-                                emotion.set_explicit_emotion(
-                                    person_id=person_id,
-                                    emotion=explicit_emotion,
-                                    text=text,
-                                    confidence=0.95,
-                                )
+                            emotion.set_explicit_emotion(
+                                person_id=person_id,
+                                emotion=explicit_emotion,
+                                text=text,
+                                confidence=0.95,
+                            )
 
                             with state_lock:
                                 state[
@@ -1237,7 +1235,6 @@ def main():
                                         "explicit_speech"
                                     ),
                                     "confidence": 0.95,
-                                    "updated_at": time.time(),
                                 }
 
                             debug_print(
@@ -1264,28 +1261,6 @@ def main():
                             )
                         )
 
-                        if not emotion_context:
-                            with state_lock:
-                                recent_emotion = state.get(
-                                    "last_emotion"
-                                )
-
-                            if recent_emotion:
-                                updated_at = float(
-                                    recent_emotion.get(
-                                        "updated_at",
-                                        0.0,
-                                    )
-                                )
-
-                                if (
-                                    updated_at > 0.0
-                                    and time.time() - updated_at <= 600.0
-                                ):
-                                    emotion_context = dict(
-                                        recent_emotion
-                                    )
-
                         if emotion_context:
                             memory_context += (
                                 "\nTemporary "
@@ -1295,29 +1270,16 @@ def main():
                                 )
                             )
 
-                        if (
-                            looks_visual(text)
-                            and not args.no_vision
-                        ):
-                            image_bytes = vision.snapshot_jpeg(
-                                quality=85
-                            )
-
-                            reply = ai.ask_visual(
-                                text,
-                                image_bytes=image_bytes,
-                                person_name=name,
-                                memory_context=memory_context,
-                                emotional_context=emotion_context,
-                            )
-                        else:
-                            reply = ai.ask(
-                                text,
-                                scene=vision.get_scene(),
-                                person_name=name,
-                                memory_context=memory_context,
-                                emotional_context=emotion_context,
-                            )
+                        reply = ai.ask(
+                            text,
+                            scene=(
+                                vision.get_scene()
+                            ),
+                            person_name=name,
+                            memory_context=(
+                                memory_context
+                            ),
+                        )
 
                         memory_request = (
                             reply.get(
