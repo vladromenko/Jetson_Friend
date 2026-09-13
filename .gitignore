@@ -38,3 +38,9 @@ data/
 
 # On-device source/database rollback snapshots
 .milo_core_backup_*/
+
+# External/local ROS workspaces
+orbbec_ws/
+
+# Benchmarks and runtime artifacts
+artifacts/

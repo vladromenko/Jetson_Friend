@@ -18,6 +18,7 @@ from memory_policy import candidate, private_turn
 from speech import Speech
 from telemetry import TurnTiming
 from vision import Vision
+from robotics.manager import RobotManager
 
 
 def extract_name(text):
@@ -360,6 +361,10 @@ def main():
         behavior.note_speech()
         face.set_state("neutral")
 
+
+    robot = RobotManager()
+    robot.bind_speech(lambda message, mood="neutral": say(message, mood))
+
     def stream(text, pid, name, context, timing, audience):
         phrases = queue.Queue(maxsize=4)
         cancel = threading.Event()
@@ -455,7 +460,11 @@ def main():
                     pending = state["pending_name"]
                     track_id = state["track_id"]
                 detected_name = extract_name(text)
-                if asks_assistant_identity(text):
+                robot_result = robot.handle_voice(text)
+                if robot_result.handled:
+                    if robot_result.text:
+                        say(robot_result.text, robot_result.mood, timing)
+                elif asks_assistant_identity(text):
                     say("I'm MILO, your local AI companion.", "happy", timing)
                 elif text.strip().lower().rstrip("?!.,") in {"milo", "hey milo"}:
                     say("Yeah, I'm listening.", timing=timing)
@@ -636,6 +645,10 @@ def main():
                 busy.clear()
     finally:
         shutdown()
+        try:
+            robot.close()
+        except Exception:
+            pass
         ai.close()
         for thread in threads:
             thread.join(timeout=1)
