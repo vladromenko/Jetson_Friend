@@ -159,6 +159,32 @@ class RobotManager:
             required_hits=int(os.getenv("MILO_FACE_SEARCH_CONFIRMATIONS", "3")),
             loss_timeout=float(os.getenv("MILO_FACE_SEARCH_LOSS_TIMEOUT_SEC", "2.5")),
         )
+        # J1-only face following. J2..J6 stay at the operator-calibrated face pose.
+        self.face_follow_deadband_x = float(os.getenv("MILO_FACE_FOLLOW_DEADBAND_X", "0.06"))
+        self.face_follow_target_x = float(os.getenv("MILO_FACE_FOLLOW_TARGET_X", "0.36"))
+        self.face_follow_step = float(os.getenv("MILO_FACE_FOLLOW_STEP_DEG", "1"))
+        self.face_follow_runtime_ms = int(os.getenv("MILO_FACE_FOLLOW_RUNTIME_MS", "320"))
+        self.face_follow_settle = float(os.getenv("MILO_FACE_FOLLOW_SETTLE_SEC", "0.12"))
+        self.face_follow_sign = int(os.getenv("MILO_FACE_FOLLOW_J1_SIGN", "1"))
+        self.face_follow_reverse_margin = float(os.getenv("MILO_FACE_FOLLOW_REVERSE_MARGIN", "0.025"))
+        if not 0.03 <= self.face_follow_deadband_x <= 0.20:
+            raise ValueError("Face-follow deadband must be 0.03..0.20")
+        if not 0.20 <= self.face_follow_target_x <= 0.80:
+            raise ValueError("MILO_FACE_FOLLOW_TARGET_X must be 0.20..0.80")
+        if self.face_follow_step != 1:
+            raise ValueError("Initial face-follow step is intentionally fixed at 1 degree")
+        if not 320 <= self.face_follow_runtime_ms <= 1200:
+            raise ValueError("Face-follow runtime must be 320..1200 ms")
+        if not 0.10 <= self.face_follow_settle <= 1.0:
+            raise ValueError("Face-follow settle must be 0.10..1.0 s")
+        if self.face_follow_sign not in (-1, 1):
+            raise ValueError("MILO_FACE_FOLLOW_J1_SIGN must be -1 or +1")
+        if not 0.01 <= self.face_follow_reverse_margin <= 0.08:
+            raise ValueError("Face-follow reverse margin must be 0.01..0.08")
+        self.face_follow_sign_verified = False
+        self.face_follow_previous_error = None
+        self.face_follow_previous_delta = None
+
         self.face_pose = self._pose("MILO_ARM_FACE_SEARCH_POSE", "90,115,115,110,135,120")
         if not self.face_search.minimum <= self.face_pose[1] <= self.face_search.maximum:
             raise ValueError("Face-search pose J1 must be inside the search sector")
@@ -217,6 +243,33 @@ class RobotManager:
         return {i+1: vals[i] for i in range(6)}
 
     def _load_face_detector(self):
+        # Prefer YuNet. The arm camera often sees a three-quarter/profile face;
+        # the old frontal Haar cascade is unreliable for that view.
+        model = Path(os.getenv(
+            "MILO_FACE_MODEL",
+            os.getenv("FACE_MODEL", str(self.root / "models" / "vision" / "face_detection_yunet.onnx"))
+        ))
+        score = float(os.getenv("MILO_FACE_YUNET_SCORE", "0.55"))
+        if not 0.3 <= score <= 0.95:
+            raise ValueError("MILO_FACE_YUNET_SCORE must be 0.3..0.95")
+
+        if hasattr(cv2, "FaceDetectorYN") and model.exists():
+            try:
+                detector = cv2.FaceDetectorYN.create(
+                    str(model), "", (320, 320), score, 0.3, 5000
+                )
+                print(
+                    f"[MILO ARM] Arm-camera face detector: YuNet {model} "
+                    f"(score>={score:.2f})",
+                    flush=True,
+                )
+                return ("yunet", detector)
+            except Exception as exc:
+                print(f"[MILO ARM] YuNet load failed: {exc}; trying Haar fallback", flush=True)
+        else:
+            reason = "OpenCV FaceDetectorYN unavailable" if not hasattr(cv2, "FaceDetectorYN") else f"model missing: {model}"
+            print(f"[MILO ARM] YuNet unavailable ({reason}); trying Haar fallback", flush=True)
+
         candidates = [
             "/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml",
             "/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml",
@@ -226,13 +279,13 @@ class RobotManager:
             candidates.insert(0, data.haarcascades + "haarcascade_frontalface_default.xml")
         path = next((x for x in candidates if Path(x).exists()), None)
         if not path:
-            print("[MILO ARM] Haar detector not found", flush=True)
+            print("[MILO ARM] No usable face detector found", flush=True)
             return None
         detector = cv2.CascadeClassifier(path)
         if detector.empty():
             print("[MILO ARM] Haar detector failed to load", flush=True)
             return None
-        print(f"[MILO ARM] Arm-camera face detector: Haar {path}", flush=True)
+        print(f"[MILO ARM] Arm-camera face detector FALLBACK: Haar {path}", flush=True)
         return ("haar", detector)
 
     def _start_ros(self):
@@ -373,7 +426,7 @@ class RobotManager:
                 print("[MILO ARM] STOPPED: supervised test time limit; no further commands", flush=True)
                 return
             if not (self.face_follow and not self.busy.is_set() and
-                    self.mode in {"FACE_SEARCH_POSE", "FACE_SEARCH", "FACE_FOUND"}):
+                    self.mode in {"FACE_SEARCH_POSE", "FACE_SEARCH", "FACE_FOUND", "FACE_HOLD"}):
                 return
             if not self._can_move():
                 # Connectivity loss latches SAFE. A returning stream never resumes motion itself.
@@ -382,6 +435,9 @@ class RobotManager:
                     self.mode = "SAFE"
                     self.pose_ready = False
                     self.face_search.reset()
+                    self.face_follow_sign_verified = False
+                    self.face_follow_previous_error = None
+                    self.face_follow_previous_delta = None
                     print("[MILO ARM] SAFE: arm endpoint or fresh RGB-D lost; resume required", flush=True)
                 return
             if not self.face_detector:
@@ -400,6 +456,9 @@ class RobotManager:
                     return
                 self.pose_ready = True
                 self.face_search.reset()
+                self.face_follow_sign_verified = False
+                self.face_follow_previous_error = None
+                self.face_follow_previous_delta = None
                 self.next_search_move = time.monotonic() + self.face_search.settle
                 self.mode = "FACE_SEARCH"
                 print("[MILO ARM] FACE_SEARCH: bounded J1 sweep enabled", flush=True)
@@ -413,15 +472,82 @@ class RobotManager:
             if not self._can_move() or time.monotonic() - stamp > 0.75:
                 return
             previous = self.mode
-            self.mode = self.face_search.observe(faces, stamp, time.monotonic())
+            observed_at = time.monotonic()
+            self.mode = self.face_search.observe(faces, stamp, observed_at)
             if self.mode != previous:
                 print(f"[MILO ARM] {self.mode}: " +
-                      ("face confirmed; no further search commands" if self.mode == "FACE_FOUND"
-                       else "face lost after timeout; stale lock cleared"), flush=True)
-            if self.mode == "FACE_FOUND" or self.face_search.hits:
-                # Freeze even during acquisition. A pending short move may finish;
-                # there is no measured-position hold/cancel primitive in this protocol.
+                      ("face confirmed; J1 follow enabled" if self.mode == "FACE_FOUND"
+                       else "face lost after timeout; bounded reacquisition enabled"), flush=True)
+
+            if self.mode == "FACE_FOUND":
+                # FACE_FOUND can persist briefly after a missed detector frame.
+                # Never move from a stale box: follow only a face matched THIS frame.
+                if self.face_search.last_seen != observed_at or self.face_search.box is None:
+                    return
+                if now < self.next_search_move:
+                    return
+
+                x1, _, x2, _ = self.face_search.box
+                cx = (x1 + x2) / 2.0
+
+                # Calibrated from the physically verified DaBai frame.
+                # The desired face position is x ~= 0.36, not the geometric image center.
+                error = cx - self.face_follow_target_x
+
+                # Fixed from observed real motion:
+                # decreasing J1 moved the face right in image;
+                # increasing J1 moved the face left.
+                # So sign=+1 is correct. Never auto-flip from one noisy detection.
+                self.face_follow_sign = 1
+                self.face_follow_sign_verified = True
+                self.face_follow_previous_error = None
+                self.face_follow_previous_delta = None
+
+                if abs(error) <= self.face_follow_deadband_x:
+                    if self.mode != "FACE_HOLD":
+                        print(
+                            f"[MILO ARM] FACE_HOLD cx={cx:.3f} target={self.face_follow_target_x:.3f} "
+                            f"J1={int(round(self.state[1]))}",
+                            flush=True,
+                        )
+                    self.mode = "FACE_HOLD"
+                    return
+
+                self.mode = "FACE_FOUND"
+
+                direction = 1 if error > 0 else -1
+                delta = self.face_follow_sign * direction * self.face_follow_step
+                target = max(self.face_search.minimum,
+                             min(self.face_search.maximum, self.state[1] + delta))
+                if target == self.state[1]:
+                    return
+
+                msg = ArmJoint()
+                msg.id = 1
+                msg.joint = int(round(target))
+                msg.time = self.face_follow_runtime_ms
+                if self.stop_request.is_set():
+                    return
+                self.node.joint_pub.publish(msg)
+                self.face_follow_previous_error = error
+                self.face_follow_previous_delta = delta
+                self.state[1] = msg.joint  # Commanded, NOT measured.
+                self.next_search_move = (
+                    time.monotonic() + msg.time / 1000 + self.face_follow_settle
+                )
+                print(
+                    f"[MILO ARM] FACE_FOLLOW cx={cx:.3f} err={error:+.3f} "
+                    f"J1={msg.joint} sign={self.face_follow_sign:+d}",
+                    flush=True,
+                )
                 return
+
+            if self.face_search.hits:
+                # During acquisition, freeze search until face confirmation.
+                return
+
+            self.face_follow_previous_error = None
+            self.face_follow_previous_delta = None
             if now < self.next_search_move:
                 return
             target = self.face_search.next_target(self.state[1])
@@ -600,8 +726,11 @@ class RobotManager:
             self.armed = True
             self.face_follow = True
             self.face_search.reset()
+            self.face_follow_sign_verified = False
+            self.face_follow_previous_error = None
+            self.face_follow_previous_delta = None
             self.mode = "FACE_SEARCH" if self.pose_ready else "FACE_SEARCH_POSE"
-            return RobotResult(True, "Face search enabled. I will stop when I find a face.", "neutral")
+            return RobotResult(True, "Face tracking enabled.", "neutral")
 
         if action=="tracking_off":
             self.face_follow=False
