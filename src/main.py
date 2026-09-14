@@ -227,7 +227,13 @@ def main():
                 speech.stop_speaking()
             memory.set_current_person(person_id)
 
+    robot = None
+
     def shutdown(*_):
+        # Stop new arm commands immediately, before waiting on audio/vision shutdown.
+        if robot is not None:
+            robot.stop_request.set()
+            robot.armed = False
         stop.set()
         speech.stop_speaking()
         vision.stop()

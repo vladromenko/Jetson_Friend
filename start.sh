@@ -19,9 +19,13 @@ if [ ! -f "$ROOT/src/main.py" ]; then
     exit 1
 fi
 
+ARM_STARTUP_BLOCK="${MILO_ARM_STARTUP_BLOCK_REASON:-}"
 set -a
 source "$ROOT/config.env"
 set +a
+if [ -n "$ARM_STARTUP_BLOCK" ]; then
+    export MILO_ARM_STARTUP_BLOCK_REASON="$ARM_STARTUP_BLOCK"
+fi
 
 export JETSON_FRIEND_ROOT="$ROOT"
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import base64
+import fcntl
 import json
+import math
 import os
 import queue
 import re
@@ -13,6 +15,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .face_search import FaceSearch, orient_face_image
+
 ROS_AVAILABLE = True
 ROS_ERROR = None
 try:
@@ -20,12 +24,14 @@ try:
     from cv_bridge import CvBridge
     from rclpy.executors import MultiThreadedExecutor
     from rclpy.node import Node
+    from rclpy.qos import qos_profile_sensor_data
     from sensor_msgs.msg import Image
     from std_msgs.msg import Int32
     from arm_msgs.msg import ArmJoint, ArmJoints
 except Exception as exc:
     ROS_AVAILABLE = False
     ROS_ERROR = exc
+    Node = object  # Allow the rest of MILO to run without ROS installed.
 
 
 @dataclass
@@ -74,8 +80,8 @@ class ArmCameraNode(Node):
         self.color_time = 0.0
         self.depth_time = 0.0
 
-        self.create_subscription(Image, os.getenv("MILO_ARM_COLOR_TOPIC", "/camera/color/image_raw"), self._color_cb, 2)
-        self.create_subscription(Image, os.getenv("MILO_ARM_DEPTH_TOPIC", "/camera/depth/image_raw"), self._depth_cb, 2)
+        self.create_subscription(Image, os.getenv("MILO_ARM_COLOR_TOPIC", "/camera/color/image_raw"), self._color_cb, qos_profile_sensor_data)
+        self.create_subscription(Image, os.getenv("MILO_ARM_DEPTH_TOPIC", "/camera/depth/image_raw"), self._depth_cb, qos_profile_sensor_data)
 
         self.joint_pub = self.create_publisher(ArmJoint, os.getenv("MILO_ARM_JOINT_TOPIC", "/arm_joint"), 10)
         self.joints_pub = self.create_publisher(ArmJoints, os.getenv("MILO_ARM_JOINTS_TOPIC", "/arm6_joints"), 10)
@@ -105,7 +111,11 @@ class ArmCameraNode(Node):
             depth = None if self.depth is None else self.depth.copy()
             return color, depth
 
-    def fresh(self, max_age=2.0):
+    def face_snapshot(self):
+        with self.lock:
+            return (None if self.color is None else self.color.copy(), self.color_time)
+
+    def fresh(self, max_age=0.75):
         now = time.monotonic()
         with self.lock:
             return (
@@ -115,15 +125,7 @@ class ArmCameraNode(Node):
 
 
 class RobotManager:
-    """
-    v3 scope:
-      IDLE -> arm-mounted DaBai follows a face.
-      "give me candy" -> tracking pauses, arm moves to a table-view pose,
-      scans for a wrapped candy bar, reports detection/depth, and STOPS THERE.
-      It intentionally does not grasp yet.
-
-    This version does not auto-calibrate on boot.
-    """
+    """Bounded face search; joint state records commands, never measurements."""
 
     def __init__(self):
         self.root = Path(os.getenv("JETSON_FRIEND_ROOT", Path(__file__).resolve().parents[2]))
@@ -133,6 +135,7 @@ class RobotManager:
         self.node = None
         self.executor = None
 
+        self.shutdown_request = threading.Event()
         self.stop_request = threading.Event()
         self.busy = threading.Event()
         self.armed = False
@@ -142,19 +145,31 @@ class RobotManager:
         # Known logical limits from the custom STM32 firmware.
         self.limits = {1:(0.0,180.0),2:(0.0,180.0),3:(0.0,180.0),4:(0.0,180.0),5:(0.0,270.0),6:(30.0,180.0)}
 
-        # We deliberately use only J1 (base yaw) + J4 (wrist pitch) for face following.
-        # That is much safer than moving shoulder/elbow continuously just to centre a face.
-        self.face_pan_joint = int(os.getenv("MILO_FACE_PAN_JOINT", "1"))
-        self.face_tilt_joint = int(os.getenv("MILO_FACE_TILT_JOINT", "4"))
-        self.face_pan_sign = float(os.getenv("MILO_FACE_PAN_SIGN", "-1"))
-        self.face_tilt_sign = float(os.getenv("MILO_FACE_TILT_SIGN", "1"))
-        self.face_step = float(os.getenv("MILO_FACE_STEP_DEG", "1.0"))
-        self.face_deadband_x = float(os.getenv("MILO_FACE_DEADBAND_X", "0.10"))
-        self.face_deadband_y = float(os.getenv("MILO_FACE_DEADBAND_Y", "0.12"))
-        self.face_interval = float(os.getenv("MILO_FACE_INTERVAL_SEC", "0.30"))
-
+        self.motion_lock = threading.RLock()
+        self.startup_block = os.getenv("MILO_ARM_STARTUP_BLOCK_REASON", "")
+        self.face_image_rotation = int(os.getenv("MILO_FACE_IMAGE_ROTATION_DEG", "0"))
+        orient_face_image(None, self.face_image_rotation)  # Validate even before frames arrive.
+        self.face_search = FaceSearch(
+            minimum=float(os.getenv("MILO_FACE_SEARCH_J1_MIN", "45")),
+            maximum=float(os.getenv("MILO_FACE_SEARCH_J1_MAX", "135")),
+            step=float(os.getenv("MILO_FACE_SEARCH_STEP_DEG", "3")),
+            runtime_ms=int(os.getenv("MILO_FACE_SEARCH_RUNTIME_MS", "320")),
+            settle=float(os.getenv("MILO_FACE_SEARCH_SETTLE_SEC", "0.10")),
+            direction=int(os.getenv("MILO_FACE_SEARCH_DIRECTION", "1")),
+            required_hits=int(os.getenv("MILO_FACE_SEARCH_CONFIRMATIONS", "3")),
+            loss_timeout=float(os.getenv("MILO_FACE_SEARCH_LOSS_TIMEOUT_SEC", "2.5")),
+        )
+        self.face_pose = self._pose("MILO_ARM_FACE_SEARCH_POSE", "90,115,115,110,135,120")
+        if not self.face_search.minimum <= self.face_pose[1] <= self.face_search.maximum:
+            raise ValueError("Face-search pose J1 must be inside the search sector")
+        self.test_duration = float(os.getenv("MILO_FACE_SEARCH_TEST_DURATION_SEC", "0"))
+        if not math.isfinite(self.test_duration) or not 0 <= self.test_duration <= 120:
+            raise ValueError("Supervised test duration must be 0 (disabled)..120 seconds")
+        self.test_deadline = None
+        self.pose_ready = False
+        self.next_search_move = 0.0
         # Current *commanded* state. We do not pretend this is encoder feedback.
-        # Face follow therefore begins only after a one-time HOME command below.
+        # Search begins only after the configured test pose has been commanded.
         self.home = self._pose("MILO_ARM_HOME_POSE", "90,90,90,90,135,120")
         self.table = self._pose("MILO_ARM_TABLE_POSE", "90,115,115,115,135,120")
         self.state = dict(self.home)
@@ -163,29 +178,18 @@ class RobotManager:
         self.search_pan = [float(x) for x in os.getenv("MILO_CANDY_SCAN_J1", "65,78,90,102,115").split(",")]
         self.search_settle = float(os.getenv("MILO_CANDY_SCAN_SETTLE_SEC", "0.45"))
 
+        self.face_pose_runtime = int(os.getenv("MILO_FACE_SEARCH_POSE_RUNTIME_MS", "5000"))
+        if not 2500 <= self.face_pose_runtime <= 5000:
+            raise ValueError("Face-search pose runtime must be 2500..5000 ms")
+        self.controller_lock = None
+        if self.enabled:
+            self.controller_lock = open(f"/tmp/milo-arm-controller-{os.getenv('ROS_DOMAIN_ID', '30')}.lock", "a")
+            try:
+                fcntl.flock(self.controller_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                self.enabled = False
+                print("[MILO ARM] SAFE: another MILO controller owns the arm", flush=True)
         self.face_detector = self._load_face_detector()
-        self._face_lock = None
-        self._face_candidate = None
-        self._face_candidate_hits = 0
-        self._face_last_seen = 0.0
-        self._face_lock_required_hits = 5
-        self._face_lock_max_jump = 0.18
-        self._face_lock_lost_timeout = 2.5
-        self._face_smooth_alpha = 0.30
-        self._focus_tracker = None
-        self._focus_tracker_kind = None
-        self._focus_bbox_px = None
-        self._focus_calibrated = False
-        self._focus_calibrating = False
-        self._focus_pan_sign = None
-        self._focus_tilt_sign = None
-        self._focus_center_j1 = None
-        self._focus_center_j4 = None
-        self._focus_j1_window = 35.0
-        self._focus_j4_window = 12.0
-        self._focus_err_x = 0.0
-        self._focus_err_y = 0.0
-
         if self.enabled:
             self._start_ros()
             threading.Thread(target=self._worker_loop, name="milo-arm-worker", daemon=True).start()
@@ -206,6 +210,10 @@ class RobotManager:
         vals = [float(x.strip()) for x in os.getenv(key, default).split(",")]
         if len(vals) != 6:
             raise ValueError(f"{key} must contain 6 comma-separated joint angles")
+        for j, value in enumerate(vals, 1):
+            lo, hi = self.limits[j]
+            if not math.isfinite(value) or not lo <= value <= hi:
+                raise ValueError(f"{key}: J{j} must be finite and within {lo}..{hi}")
         return {i+1: vals[i] for i in range(6)}
 
     def _load_face_detector(self):
@@ -240,82 +248,84 @@ class RobotManager:
         threading.Thread(target=self.executor.spin, name="milo-arm-ros", daemon=True).start()
 
     def _torque(self, on):
-        if not self.node:
+        if not self.node or (on and not self._can_move()):
             return
         msg = Int32()
         msg.data = 1 if on else 0
         self.node.torque_pub.publish(msg)
         time.sleep(0.1)
 
+    def _arm_available(self):
+        return bool(self.node and all(pub.get_subscription_count() > 0 for pub in
+                    (self.node.joint_pub, self.node.joints_pub, self.node.torque_pub)))
+
     def _startup_sequence(self):
-        print("[MILO ARM] Waiting for DaBai RGB-D...", flush=True)
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline and not self.stop_request.is_set():
-            if self.node and self.node.fresh():
+        if self.startup_block:
+            print(f"[MILO ARM] SAFE: {self.startup_block}", flush=True)
+            return
+        print("[MILO ARM] Waiting for arm endpoints and fresh DaBai RGB-D...", flush=True)
+        deadline = time.monotonic() + float(os.getenv("MILO_ARM_READY_TIMEOUT_SEC", "45"))
+        while not self.stop_request.is_set():
+            if self._arm_available() and self.node.fresh() and self.face_detector:
                 break
-            time.sleep(0.2)
-        if not self.node or not self.node.fresh():
-            print("[MILO ARM] RGB-D not ready; arm remains SAFE.", flush=True)
-            return
-
-        # Auto-ready, as requested.
-        self.stop_request.clear()
-        self.armed = True
-        self.mode = "STARTING"
-        self._torque(True)
-        time.sleep(0.5)
-
-        # Establish a known commanded pose once at boot. This is the reference for
-        # all later incremental tracking. It is the previously used straight/home pose.
-        print("[MILO ARM] Moving once to HOME reference pose.", flush=True)
-        if not self._move_pose(self.home, 1800):
-            self.mode = "STOPPED"
-            return
-        self.mode = "IDLE"
-        print("[MILO ARM] READY: face tracking active.", flush=True)
-        self._say("Arm ready. I am following your face.", "happy")
+            if time.monotonic() >= deadline:
+                print("[MILO ARM] SAFE: arm endpoints, fresh RGB-D, or face detector unavailable", flush=True)
+                return
+            self.stop_request.wait(0.1)
+        with self.motion_lock:
+            if self.stop_request.is_set() or not self.enabled:
+                return
+            self.armed = True
+            self.mode = "FACE_SEARCH_POSE" if self.face_follow else "IDLE"
 
     def _can_move(self):
-        return bool(self.enabled and self.armed and self.node and not self.stop_request.is_set())
+        return bool(self.enabled and self.armed and not self.startup_block and
+                    self._arm_available() and self.node.fresh() and
+                    not self.stop_request.is_set())
 
     def _sleep(self, seconds):
-        end = time.monotonic() + seconds
-        while time.monotonic() < end:
+        end = time.monotonic() + max(0.0, seconds)
+        while True:
             if self.stop_request.is_set():
                 return False
-            time.sleep(min(0.05, end-time.monotonic()))
-        return True
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                return True
+            self.stop_request.wait(min(0.05, remaining))
 
     def _move_joint(self, joint, angle, runtime_ms=300):
-        if not self._can_move():
-            return False
-        low, high = self.limits[joint]
-        angle = max(low, min(high, float(angle)))
-        msg = ArmJoint()
-        msg.id = joint
-        msg.joint = int(round(angle))
-        msg.time = max(100, min(5000, int(runtime_ms)))
-        self.node.joint_pub.publish(msg)
-        self.state[joint] = angle
-        return self._sleep(msg.time/1000.0 + 0.06)
+        with self.motion_lock:
+            if not self._can_move():
+                return False
+            low, high = self.limits[joint]
+            angle = max(low, min(high, float(angle)))
+            msg = ArmJoint()
+            msg.id = joint
+            msg.joint = int(round(angle))
+            msg.time = max(100, min(5000, int(runtime_ms)))
+            self.node.joint_pub.publish(msg)
+            self.state[joint] = angle
+            return self._sleep(msg.time/1000.0 + 0.06)
 
     def _move_pose(self, pose, runtime_ms=1300):
-        if not self._can_move():
-            return False
-        vals=[]
-        for j in range(1,7):
-            lo,hi=self.limits[j]
-            vals.append(max(lo,min(hi,float(pose[j]))))
-        msg=ArmJoints()
-        msg.joint1,msg.joint2,msg.joint3,msg.joint4,msg.joint5,msg.joint6=[int(round(v)) for v in vals]
-        msg.time=max(100,min(5000,int(runtime_ms)))
-        self.node.joints_pub.publish(msg)
-        self.state={i+1:vals[i] for i in range(6)}
-        return self._sleep(msg.time/1000.0 + 0.08)
+        with self.motion_lock:
+            if not self._can_move():
+                return False
+            vals=[]
+            for j in range(1,7):
+                lo,hi=self.limits[j]
+                vals.append(max(lo,min(hi,float(pose[j]))))
+            msg=ArmJoints()
+            msg.joint1,msg.joint2,msg.joint3,msg.joint4,msg.joint5,msg.joint6=[int(round(v)) for v in vals]
+            msg.time=max(100,min(5000,int(runtime_ms)))
+            self.node.joints_pub.publish(msg)
+            self.state={i+1:vals[i] for i in range(6)}
+            return self._sleep(msg.time/1000.0 + 0.08)
 
     def _raw_faces(self, frame):
         if frame is None or self.face_detector is None:
             return []
+        frame = orient_face_image(frame, self.face_image_rotation)
         h, w = frame.shape[:2]
         kind, detector = self.face_detector
 
@@ -352,356 +362,90 @@ class RobotManager:
         except Exception:
             return []
 
-    def _box_center(self, box):
-        return ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0)
+    def _face_tick(self):
+        with self.motion_lock:
+            if self.test_deadline is not None and time.monotonic() >= self.test_deadline:
+                self.stop_request.set()
+                self.armed = False
+                self.mode = "STOPPED"
+                self.startup_block = "supervised test completed; restart required for another test"
+                self.test_deadline = None
+                print("[MILO ARM] STOPPED: supervised test time limit; no further commands", flush=True)
+                return
+            if not (self.face_follow and not self.busy.is_set() and
+                    self.mode in {"FACE_SEARCH_POSE", "FACE_SEARCH", "FACE_FOUND"}):
+                return
+            if not self._can_move():
+                # Connectivity loss latches SAFE. A returning stream never resumes motion itself.
+                if self.armed:
+                    self.armed = False
+                    self.mode = "SAFE"
+                    self.pose_ready = False
+                    self.face_search.reset()
+                    print("[MILO ARM] SAFE: arm endpoint or fresh RGB-D lost; resume required", flush=True)
+                return
+            if not self.face_detector:
+                self.armed = False
+                self.mode = "SAFE"
+                return
+            if not self.pose_ready:
+                self.mode = "FACE_SEARCH_POSE"
+                print(f"[MILO ARM] FACE_SEARCH_POSE test command: {self.face_pose}", flush=True)
+                if self.test_duration:
+                    self.test_deadline = time.monotonic() + self.test_duration
+                self._torque(True)
+                if not self._move_pose(self.face_pose, self.face_pose_runtime):
+                    self.armed = False
+                    self.mode = "STOPPED"
+                    return
+                self.pose_ready = True
+                self.face_search.reset()
+                self.next_search_move = time.monotonic() + self.face_search.settle
+                self.mode = "FACE_SEARCH"
+                print("[MILO ARM] FACE_SEARCH: bounded J1 sweep enabled", flush=True)
+                return
+            frame, stamp = self.node.face_snapshot()
+            now = time.monotonic()
+            if frame is None or stamp <= (self.face_search.last_frame or 0):
+                return
+            faces = self._raw_faces(frame)
+            # Detection can take time: recheck freshness before any publish.
+            if not self._can_move() or time.monotonic() - stamp > 0.75:
+                return
+            previous = self.mode
+            self.mode = self.face_search.observe(faces, stamp, time.monotonic())
+            if self.mode != previous:
+                print(f"[MILO ARM] {self.mode}: " +
+                      ("face confirmed; no further search commands" if self.mode == "FACE_FOUND"
+                       else "face lost after timeout; stale lock cleared"), flush=True)
+            if self.mode == "FACE_FOUND" or self.face_search.hits:
+                # Freeze even during acquisition. A pending short move may finish;
+                # there is no measured-position hold/cancel primitive in this protocol.
+                return
+            if now < self.next_search_move:
+                return
+            target = self.face_search.next_target(self.state[1])
+            msg = ArmJoint()
+            msg.id, msg.joint, msg.time = 1, int(round(target)), self.face_search.runtime_ms
+            if self.stop_request.is_set():
+                return
+            self.node.joint_pub.publish(msg)
+            self.state[1] = msg.joint  # Commanded, NOT measured.
+            self.next_search_move = time.monotonic() + msg.time / 1000 + self.face_search.settle
+            print(f"[MILO ARM] FACE_SEARCH J1 command={msg.joint} runtime_ms={msg.time}", flush=True)
 
-    def _box_area(self, box):
-        return max(1e-6, (box[2] - box[0]) * (box[3] - box[1]))
-
-    def _face_box(self, frame):
-        faces = self._raw_faces(frame)
-        now = time.monotonic()
-
-        # Locked phase: keep the same face by proximity/scale continuity.
-        if self._face_lock is not None:
-            old = self._face_lock
-            ocx, ocy = self._box_center(old)
-            old_area = self._box_area(old)
-
-            best = None
-            best_score = 999.0
-            for f in faces:
-                cx, cy = self._box_center(f)
-                dist = ((cx - ocx) ** 2 + (cy - ocy) ** 2) ** 0.5
-                ratio = self._box_area(f) / old_area
-                if dist > 0.24:
-                    continue
-                if ratio < 0.35 or ratio > 2.8:
-                    continue
-                score = dist + 0.03 * abs(np.log(max(ratio, 1e-6)))
-                if score < best_score:
-                    best = f
-                    best_score = score
-
-            if best is None:
-                if now - self._face_last_seen > 2.5:
-                    print("[MILO ARM] FACE LOCK lost; waiting for your face again", flush=True)
-                    self._face_lock = None
-                    self._face_candidate = None
-                    self._face_candidate_hits = 0
-                    self._face_candidate_misses = 0
-                return None
-
-            a = 0.35
-            smoothed = tuple((1.0 - a) * old[i] + a * best[i] for i in range(4))
-            self._face_lock = smoothed
-            self._face_last_seen = now
-            return smoothed
-
-        # Acquisition phase. Important: detections do NOT have to be on 5 consecutive
-        # frames. Haar often misses alternate frames on this arm camera.
-        if not hasattr(self, "_face_candidate_misses"):
-            self._face_candidate_misses = 0
-
-        if not faces:
-            if self._face_candidate is not None:
-                self._face_candidate_misses += 1
-                if self._face_candidate_misses <= 8:
-                    return None
-                print("[MILO ARM] FACE ACQUIRE reset after too many missed frames", flush=True)
-            self._face_candidate = None
-            self._face_candidate_hits = 0
-            self._face_candidate_misses = 0
-            return None
-
-        if self._face_candidate is None:
-            cand = max(faces, key=self._box_area)
-            self._face_candidate = cand
-            self._face_candidate_hits = 1
-            self._face_candidate_misses = 0
-            print("[MILO ARM] FACE ACQUIRE 1/3 - keep looking at the arm camera", flush=True)
-            return None
-
-        pcx, pcy = self._box_center(self._face_candidate)
-        prev_area = self._box_area(self._face_candidate)
-
-        best = None
-        best_dist = 999.0
-        for f in faces:
-            cx, cy = self._box_center(f)
-            dist = ((cx - pcx) ** 2 + (cy - pcy) ** 2) ** 0.5
-            ratio = self._box_area(f) / prev_area
-            if dist <= 0.18 and 0.45 <= ratio <= 2.2 and dist < best_dist:
-                best = f
-                best_dist = dist
-
-        if best is None:
-            self._face_candidate_misses += 1
-            if self._face_candidate_misses > 8:
-                self._face_candidate = max(faces, key=self._box_area)
-                self._face_candidate_hits = 1
-                self._face_candidate_misses = 0
-                print("[MILO ARM] FACE ACQUIRE restarted 1/3", flush=True)
-            return None
-
-        self._face_candidate = best
-        self._face_candidate_hits += 1
-        self._face_candidate_misses = 0
-        print(f"[MILO ARM] FACE ACQUIRE {self._face_candidate_hits}/3", flush=True)
-
-        if self._face_candidate_hits < 3:
-            return None
-
-        self._face_lock = self._face_candidate
-        self._face_last_seen = now
-        self._face_candidate = None
-        self._face_candidate_hits = 0
-        self._face_candidate_misses = 0
-        cx, cy = self._box_center(self._face_lock)
-        print(f"[MILO ARM] FACE LOCKED cx={cx:.2f} cy={cy:.2f}", flush=True)
-        return self._face_lock
-
-    def _make_cv_tracker(self):
-        makers = [
-            ("CSRT", lambda: cv2.legacy.TrackerCSRT_create() if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerCSRT_create") else None),
-            ("KCF", lambda: cv2.legacy.TrackerKCF_create() if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerKCF_create") else None),
-            ("MOSSE", lambda: cv2.legacy.TrackerMOSSE_create() if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerMOSSE_create") else None),
-            ("CSRT", lambda: cv2.TrackerCSRT_create() if hasattr(cv2, "TrackerCSRT_create") else None),
-            ("KCF", lambda: cv2.TrackerKCF_create() if hasattr(cv2, "TrackerKCF_create") else None),
-        ]
-        for name, fn in makers:
-            try:
-                tracker = fn()
-                if tracker is not None:
-                    return name, tracker
-            except Exception:
-                pass
-        return None, None
-
-    def _norm_to_px_bbox(self, box, frame):
-        h, w = frame.shape[:2]
-        x1, y1, x2, y2 = box
-        x = int(max(0, min(w - 2, round(x1 * w))))
-        y = int(max(0, min(h - 2, round(y1 * h))))
-        bw = int(max(2, min(w - x, round((x2 - x1) * w))))
-        bh = int(max(2, min(h - y, round((y2 - y1) * h))))
-        return (x, y, bw, bh)
-
-    def _px_to_norm_bbox(self, bbox, frame):
-        h, w = frame.shape[:2]
-        x, y, bw, bh = [float(v) for v in bbox]
-        return (
-            max(0.0, x / w),
-            max(0.0, y / h),
-            min(1.0, (x + bw) / w),
-            min(1.0, (y + bh) / h),
-        )
-
-    def _start_focus_tracker(self, frame, box):
-        name, tracker = self._make_cv_tracker()
-        if tracker is None:
-            print("[MILO ARM] No OpenCV object tracker available; continuing with detector lock", flush=True)
-            self._focus_tracker = None
-            self._focus_tracker_kind = None
-            return False
-        bbox = self._norm_to_px_bbox(box, frame)
-        try:
-            ok = tracker.init(frame, bbox)
-            if ok is False:
-                return False
-            self._focus_tracker = tracker
-            self._focus_tracker_kind = name
-            self._focus_bbox_px = bbox
-            print(f"[MILO ARM] FACE TARGET captured with {name} tracker", flush=True)
-            return True
-        except Exception as exc:
-            print(f"[MILO ARM] Tracker init failed: {exc}", flush=True)
-            self._focus_tracker = None
-            return False
-
-    def _tracked_face_box(self, frame):
-        if self._focus_tracker is None:
-            return None
-        try:
-            ok, bbox = self._focus_tracker.update(frame)
-            if not ok:
-                return None
-            x, y, bw, bh = [float(v) for v in bbox]
-            h, w = frame.shape[:2]
-            if bw < 25 or bh < 25 or x + bw < 0 or y + bh < 0 or x >= w or y >= h:
-                return None
-            self._focus_bbox_px = bbox
-            return self._px_to_norm_bbox(bbox, frame)
-        except Exception:
-            return None
-
-    def _wait_face_center(self, samples=5, timeout=2.0):
-        vals = []
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline and len(vals) < samples and not self.stop_request.is_set():
-            frame, _ = self.node.snapshot()
-            box = self._tracked_face_box(frame) if frame is not None else None
-            if box is None and frame is not None and self._face_lock is not None:
-                box = self._face_lock
-            if box is not None:
-                vals.append(self._box_center(box))
-            time.sleep(0.08)
-        if not vals:
-            return None
-        return (
-            float(np.median([v[0] for v in vals])),
-            float(np.median([v[1] for v in vals])),
-        )
-
-    def _auto_calibrate_focus_axes(self):
-        if self._focus_calibrated or self._focus_calibrating or not self._can_move():
-            return self._focus_calibrated
-        self._focus_calibrating = True
-        try:
-            print("[MILO ARM] FOCUS CALIBRATION: hold your head still for about 3 seconds", flush=True)
-            base = self._wait_face_center(samples=5, timeout=2.0)
-            if base is None:
-                print("[MILO ARM] FOCUS CALIBRATION failed: face not stable", flush=True)
-                return False
-
-            j1 = float(self.state[1])
-            j4 = float(self.state[4])
-            self._focus_center_j1 = j1
-            self._focus_center_j4 = j4
-
-            if not self._move_joint(1, j1 + 2.0, 350):
-                return False
-            p1 = self._wait_face_center(samples=4, timeout=1.5)
-            self._move_joint(1, j1, 350)
-            self._sleep(0.2)
-
-            if not self._move_joint(4, j4 + 2.0, 350):
-                return False
-            p4 = self._wait_face_center(samples=4, timeout=1.5)
-            self._move_joint(4, j4, 350)
-            self._sleep(0.2)
-
-            if p1 is None or p4 is None:
-                print("[MILO ARM] FOCUS CALIBRATION failed: tracker lost during probe", flush=True)
-                return False
-
-            dx = p1[0] - base[0]
-            dy = p4[1] - base[1]
-            if abs(dx) < 0.008 or abs(dy) < 0.008:
-                print(f"[MILO ARM] FOCUS CALIBRATION failed: response too small dx={dx:+.3f} dy={dy:+.3f}", flush=True)
-                return False
-
-            self._focus_pan_sign = -1.0 if dx > 0 else 1.0
-            self._focus_tilt_sign = -1.0 if dy > 0 else 1.0
-            self._focus_calibrated = True
-            print(
-                f"[MILO ARM] FOCUS CALIBRATED dx/J1={dx:+.3f} dy/J4={dy:+.3f} "
-                f"pan_sign={self._focus_pan_sign:+.0f} tilt_sign={self._focus_tilt_sign:+.0f}",
-                flush=True,
-            )
-            return True
-        finally:
-            self._focus_calibrating = False
     def _face_loop(self):
-        last_log = 0.0
-        lost_since = None
-
-        while True:
+        while not self.shutdown_request.wait(0.08):
             try:
-                if not (
-                    self.enabled and self.armed and self.face_follow and
-                    self.mode == "IDLE" and not self.busy.is_set() and
-                    not self.stop_request.is_set() and self.node and self.node.fresh()
-                ):
-                    time.sleep(0.12)
-                    continue
-
-                frame, _ = self.node.snapshot()
-                if frame is None:
-                    time.sleep(0.1)
-                    continue
-
-                if self._focus_tracker is None and self._face_lock is None:
-                    box = self._face_box(frame)
-                    if self._face_lock is None:
-                        time.sleep(0.08)
-                        continue
-                    box = self._face_lock
-                    if self._start_focus_tracker(frame, box):
-                        lost_since = None
-                    time.sleep(0.08)
-                    continue
-
-                box = self._tracked_face_box(frame)
-                if box is None:
-                    if lost_since is None:
-                        lost_since = time.monotonic()
-                        print("[MILO ARM] FACE TARGET temporarily lost - arm frozen", flush=True)
-                    if time.monotonic() - lost_since > 2.0:
-                        print("[MILO ARM] FACE TARGET lost - reacquiring", flush=True)
-                        self._focus_tracker = None
-                        self._focus_tracker_kind = None
-                        self._face_lock = None
-                        self._face_candidate = None
-                        self._face_candidate_hits = 0
-                        self._focus_calibrated = False
-                        lost_since = None
-                    time.sleep(0.1)
-                    continue
-
-                lost_since = None
-
-                if not self._focus_calibrated:
-                    if not self._auto_calibrate_focus_axes():
-                        time.sleep(0.3)
-                        continue
-                    time.sleep(0.1)
-                    continue
-
-                cx, cy = self._box_center(box)
-                ex = cx - 0.5
-                ey = cy - 0.5
-
-                a = 0.35
-                self._focus_err_x = (1.0 - a) * self._focus_err_x + a * ex
-                self._focus_err_y = (1.0 - a) * self._focus_err_y + a * ey
-                fx = self._focus_err_x
-                fy = self._focus_err_y
-
-                pan_delta = 0.0
-                tilt_delta = 0.0
-                if abs(fx) > 0.06:
-                    pan_delta = self._focus_pan_sign * np.sign(fx) * min(1.8, max(0.6, abs(fx) * 7.0))
-                if abs(fy) > 0.08:
-                    tilt_delta = self._focus_tilt_sign * np.sign(fy) * min(1.0, max(0.5, abs(fy) * 4.0))
-
-                j1_min = max(self.limits[1][0], self._focus_center_j1 - self._focus_j1_window)
-                j1_max = min(self.limits[1][1], self._focus_center_j1 + self._focus_j1_window)
-                j4_min = max(self.limits[4][0], self._focus_center_j4 - self._focus_j4_window)
-                j4_max = min(self.limits[4][1], self._focus_center_j4 + self._focus_j4_window)
-
-                if time.monotonic() - last_log > 0.6:
-                    print(
-                        f"[MILO ARM] FOCUS cx={cx:.2f} cy={cy:.2f} "
-                        f"err=({fx:+.2f},{fy:+.2f}) "
-                        f"dJ1={pan_delta:+.1f} dJ4={tilt_delta:+.1f}",
-                        flush=True,
-                    )
-                    last_log = time.monotonic()
-
-                if pan_delta:
-                    target1 = max(j1_min, min(j1_max, self.state[1] + pan_delta))
-                    self._move_joint(1, target1, 260)
-
-                if tilt_delta and not self.stop_request.is_set():
-                    target4 = max(j4_min, min(j4_max, self.state[4] + tilt_delta))
-                    self._move_joint(4, target4, 260)
-
-                time.sleep(0.08)
-
+                self._face_tick()
             except Exception as exc:
-                print(f"[MILO ARM] face focus recovery: {exc}", flush=True)
-                time.sleep(0.5)
+                with self.motion_lock:
+                    self.armed = False
+                    self.mode = "SAFE"
+                    self.pose_ready = False
+                print(f"[MILO ARM] SAFE: face search error: {exc}", flush=True)
+        # Emergency stop does not terminate the service; explicit resume may restart search.
+
     def _gemma_box(self, frame, target):
         ok,jpg=cv2.imencode(".jpg",frame,[int(cv2.IMWRITE_JPEG_QUALITY),82])
         if not ok:
@@ -824,7 +568,14 @@ class RobotManager:
             finally:
                 self.jobs.task_done()
 
-    def handle_voice(self,text):
+    def handle_voice(self, text):
+        # Signal first so an in-flight synchronous wait can exit before acquiring the lock.
+        if (parse_robot_command(text) or {}).get("action") == "stop":
+            self.stop_request.set()
+        with self.motion_lock:
+            return self._handle_voice(text)
+
+    def _handle_voice(self,text):
         cmd=parse_robot_command(text)
         if not cmd:
             return RobotResult(False)
@@ -835,43 +586,36 @@ class RobotManager:
             self.armed=False
             self.face_follow=False
             self.mode="STOPPED"
+            self.pose_ready=False
             try:self._torque(False)
             except Exception:pass
             return RobotResult(True,"Arm stopped and torque disabled.","concerned")
 
-        if action=="arm_ready":
-            if not self.node:
-                return RobotResult(True,"The arm controller is not available.","concerned")
+        if action in {"arm_ready", "tracking_on"}:
+            if self.startup_block or not self._arm_available() or not self.node.fresh() or not self.face_detector:
+                return RobotResult(True, "Arm stays safe: startup blocked, controller, camera, or detector unavailable.", "concerned")
+            if self.busy.is_set() or not self.jobs.empty():
+                return RobotResult(True, "An arm action is already active.", "neutral")
             self.stop_request.clear()
-            self.armed=True
-            self._torque(True)
-            self.mode="IDLE"
-            return RobotResult(True,"Arm ready.","neutral")
-
-        if action=="tracking_on":
-            if not self.armed:
-                return RobotResult(True,"The arm is stopped.","concerned")
-            self.face_follow=True
-            self.mode="IDLE"
-            return RobotResult(True,"I am following your face.","happy")
+            self.armed = True
+            self.face_follow = True
+            self.face_search.reset()
+            self.mode = "FACE_SEARCH" if self.pose_ready else "FACE_SEARCH_POSE"
+            return RobotResult(True, "Face search enabled. I will stop when I find a face.", "neutral")
 
         if action=="tracking_off":
             self.face_follow=False
             return RobotResult(True,"Face tracking is off.","neutral")
 
         if action=="find_candy":
-            if not self.armed or self.stop_request.is_set():
-                return RobotResult(True,"The arm is stopped.","concerned")
-            if self.busy.is_set() or not self.jobs.empty():
-                return RobotResult(True,"I am already moving the arm.","neutral")
-            self.face_follow=False
-            self.jobs.put_nowait("find_candy")
-            return RobotResult(True,"I will look for the candy on the table.","thinking")
+            return RobotResult(True, "Candy search is disabled while we validate face search.", "neutral")
 
         return RobotResult(False)
 
     def close(self):
+        self.shutdown_request.set()
         self.stop_request.set()
+        self.armed = False
         try:self.jobs.put_nowait(None)
         except Exception:pass
         try:
@@ -880,3 +624,5 @@ class RobotManager:
         try:
             if self.node:self.node.destroy_node()
         except Exception:pass
+        if self.controller_lock:
+            self.controller_lock.close()
