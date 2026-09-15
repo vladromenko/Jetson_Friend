@@ -21,6 +21,8 @@ set +u
 source "/opt/ros/$ROS_DISTRO_DETECTED/setup.bash"
 [ ! -f "$ROOT/orbbec_ws/install/setup.bash" ] || source "$ROOT/orbbec_ws/install/setup.bash"
 [ ! -f "$HOME/m3pro_hw_ws/install/setup.bash" ] || source "$HOME/m3pro_hw_ws/install/setup.bash"
+# The installed arm_msgs colcon hook omits its ament prefix; source its package hook.
+[ ! -f "$HOME/m3pro_hw_ws/install/arm_msgs/share/arm_msgs/local_setup.bash" ] || source "$HOME/m3pro_hw_ws/install/arm_msgs/share/arm_msgs/local_setup.bash"
 set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-30}"
 block_arm() {
@@ -90,7 +92,7 @@ fi
 echo "[MILO] arm_joint=$ARM_OK color=$CAMERA_OK depth=$CAMERA_OK"
 echo '[MILO] Logitech global camera and DaBai arm camera are separate inputs.'
 if [ -z "$MILO_ARM_STARTUP_BLOCK_REASON" ]; then
-  echo '[MILO] Face search will use the configured test pose and bounded J1 sector.'
+  echo '[MILO] Face tracking starts without a pose move; physical corrections require explicit verification gates.'
 else echo "[MILO] Autonomous arm motion DISABLED: $MILO_ARM_STARTUP_BLOCK_REASON"; fi
 # Keep the launcher alive so EXIT cleanup runs for processes it owns.
 setsid "$ROOT/start.sh" "$@" &

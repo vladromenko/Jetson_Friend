@@ -20,3 +20,9 @@ Local memory commands include “What do you remember about me?”, “Remember 
 ```
 
 See the [implementation and hardware report](docs/MILO_CORE_REPORT.md) for measurements, the architecture, reproduction commands, migration behavior and remaining limitations. Face recognition thresholds still require calibration; existing unaligned face references need re-enrollment.
+
+## Manipulation foundation
+
+See [the current Jetson audit, safety gates, tests and calibration TODO](docs/MANIPULATION_FOUNDATION.md).
+Run `./start_manipulation_dry_run.sh 30` on the Jetson for a camera-only diagnostic.
+Physical tracking defaults off; grasping remains disabled pending verified geometry.

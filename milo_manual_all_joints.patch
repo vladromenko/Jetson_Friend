@@ -1,0 +1,106 @@
+diff --git a/tools/manual_arm.py b/tools/manual_arm.py
+--- a/tools/manual_arm.py
++++ b/tools/manual_arm.py
+@@ -23,9 +23,16 @@ class ManualPlan:
+     def request(self, joint, delta, now):
+         if now < self.ready_at:
+             return None
+-        limits = {1: (45, 135), 2: (70, 115)}
++        limits = {
++            1: (45, 135),
++            2: (70, 115),
++            3: (0, 180),
++            4: (0, 180),
++            5: (0, 270),
++            6: (30, 180),
++        }
+         if joint not in limits or abs(delta) > 2:
+-            raise ValueError('Manual control supports J1/J2 steps of at most 2 degrees')
++            raise ValueError('Manual control supports J1..J6 steps of at most 2 degrees')
+         lo, hi = limits[joint]
+         target = max(lo, min(hi, self.state[joint] + delta))
+         if abs(target - self.state[joint]) > 2:
+@@ -122,23 +129,33 @@ def main():
+                 if healthy:
+                     blocked = False
+                     status = 'Readiness rechecked. HOLD; choose a movement explicitly.'
+             elif key in (ord('g'), ord('G')) and healthy and not blocked:
+                 plan.ramp = True
+                 status = 'J2 -> 70 in 2-degree steps. SPACE holds immediately.'
+-            elif key in (ord('s'), ord('S')):
++            elif key in (ord('p'), ord('P')):
+                 plan.hold()
+                 if now >= plan.ready_at:
+                     pose, backup = save_pose(root, plan.state)
+                     status = f'Saved search pose {pose}; config backup created.'
+                 else:
+-                    status = 'Wait for current short move to finish, then press S.'
+-            elif key in (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN):
++                    status = 'Wait for current short move to finish, then press P.'
++            elif key in (
++                curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN,
++                ord('a'), ord('A'), ord('d'), ord('D'),
++                ord('w'), ord('W'), ord('s'), ord('S'),
++                ord('z'), ord('Z'), ord('x'), ord('X'),
++                ord('c'), ord('C'), ord('v'), ord('V'),
++            ):
+                 plan.hold()
+                 if healthy and not blocked:
+-                    joint, delta = {curses.KEY_LEFT:(1,-2), curses.KEY_RIGHT:(1,2),
+-                                    curses.KEY_UP:(2,2), curses.KEY_DOWN:(2,-2)}[key]
++                    joint, delta = {
++                        curses.KEY_LEFT:(1,-2), curses.KEY_RIGHT:(1,2),
++                        curses.KEY_UP:(2,2), curses.KEY_DOWN:(2,-2),
++                        ord('a'):(3,-2), ord('A'):(3,-2), ord('d'):(3,2), ord('D'):(3,2),
++                        ord('w'):(4,2), ord('W'):(4,2), ord('s'):(4,-2), ord('S'):(4,-2),
++                        ord('z'):(5,-2), ord('Z'):(5,-2), ord('x'):(5,2), ord('X'):(5,2),
++                        ord('c'):(6,-2), ord('C'):(6,-2), ord('v'):(6,2), ord('V'):(6,2),
++                    }[key]
+                     request = plan.request(joint, delta, now)
+                     # Key repeat never builds a queue of future motor commands.
+                     curses.flushinp()
+@@ -160,16 +177,19 @@ def main():
+                 f'Arm subscriber={endpoint}   fresh RGB-D={camera}   exclusive={exclusive}',
+                 f'Mode: {"J2 RAMP TO 70" if plan.ramp else "HOLD / SINGLE STEP"}',
+                 '',
+                 'LEFT / RIGHT : J1 -2 / +2 deg (45..135)',
+                 'UP   / DOWN  : J2 +2 / -2 deg (70..115)',
++                'A / D        : J3 -2 / +2 deg',
++                'W / S        : J4 +2 / -2 deg',
++                'Z / X        : J5 -2 / +2 deg',
++                'C / V        : J6 -2 / +2 deg',
+                 'G : slowly move J2 toward 70 deg; J1 remains fixed',
+                 'SPACE : stop new commands (keeps torque)',
+-                'S : save current commanded pose to FACE_SEARCH config',
++                'P : save current commanded pose to FACE_SEARCH config',
+                 'R : recheck readiness after a fault; never starts motion',
+                 'Q / ESC / Ctrl+C : hold and exit',
+                 '',
+-                'J3/J4/J5/J6 are never commanded by this panel.',
+                 'One step: 1000 ms + 300 ms settling. No automatic movement at startup.',
+                 '', status,
+             ]
+diff --git a/tests/test_manual_arm.py b/tests/test_manual_arm.py
+--- a/tests/test_manual_arm.py
++++ b/tests/test_manual_arm.py
+@@ -45,6 +45,19 @@ def test_j1_cannot_cross_sector_boundary():
+     p.state[1]=45
+     assert p.request(1,-2,0) is None
+
++def test_every_joint_can_be_moved_in_two_degree_steps():
++    p=plan()
++    cases = {
++        1: (2, 110),
++        2: (-2, 108),
++        3: (2, 117),
++        4: (-2, 98),
++        5: (2, 137),
++        6: (-2, 118),
++    }
++    for joint,(delta,target) in cases.items():
++        p.ready_at=0
++        assert p.request(joint,delta,0) == (joint,target)
++
+ def test_pose_save_preserves_other_config_and_creates_backup(tmp_path):
+     original='CAMERA_INDEX=0\nMILO_FACE_IMAGE_ROTATION_DEG=180\nMILO_ARM_FACE_SEARCH_POSE=90,115,115,110,135,120\n'
+     (tmp_path/'config.env').write_text(original)

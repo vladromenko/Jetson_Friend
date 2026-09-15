@@ -164,7 +164,34 @@ def main():
         "no-emotion",
     ):
         parser.add_argument("--" + option, action="store_true")
+    arm_operation = parser.add_mutually_exclusive_group()
+    arm_operation.add_argument('--arm-j1-probe', action='store_true', help='One J1 +1/return test inside MILO; never starts face motion')
+    arm_operation.add_argument('--arm-face-track', action='store_true', help='Enable supervised J1 face following inside MILO')
+    pose_source = parser.add_mutually_exclusive_group()
+    pose_source.add_argument('--arm-current-pose', help='Operator-verified CURRENT six logical angles')
+    pose_source.add_argument('--arm-initialize-pose', help='Explicitly approved six-angle starting pose; commands it once over 5 seconds')
+    parser.add_argument('--arm-j1-sign', type=int, choices=(-1,1), help='Experimentally verified image-error to J1 sign')
+    parser.add_argument('--arm-target-x', type=float, default=0.5)
+    parser.add_argument('--arm-track-seconds', type=float, default=30)
     args = parser.parse_args()
+    if args.arm_j1_probe or args.arm_face_track:
+        if not (args.arm_current_pose or args.arm_initialize_pose):
+            parser.error('Physical arm operation needs --arm-current-pose or --arm-initialize-pose')
+        if args.arm_face_track and args.arm_j1_sign is None:
+            parser.error('Face tracking needs experimentally verified --arm-j1-sign')
+        if not 1 <= args.arm_track_seconds <= 120 or not 0.2 <= args.arm_target_x <= 0.8:
+            parser.error('Tracking duration must be 1..120 seconds and target 0.2..0.8')
+        os.environ['MILO_ARM_ENABLE'] = '1'
+        os.environ['MILO_ARM_TRACKING_ENABLED'] = '1'
+        os.environ['MILO_ARM_MODE'] = 'MANUAL' if args.arm_j1_probe else 'FACE_TRACK'
+        os.environ['MILO_ARM_PROBE_J1'] = '1' if args.arm_j1_probe else '0'
+        os.environ['MILO_ARM_CONVENTIONS_VERIFIED'] = '1' if args.arm_face_track else '0'
+        os.environ['MILO_ARM_VERIFIED_CURRENT_POSE'] = args.arm_current_pose or ''
+        os.environ['MILO_ARM_INITIALIZE_POSE'] = args.arm_initialize_pose or ''
+        os.environ['MILO_FACE_FOLLOW_J1_SIGN'] = str(args.arm_j1_sign or 1)
+        os.environ['MILO_FACE_FOLLOW_TARGET_X'] = str(args.arm_target_x)
+        os.environ['MILO_FACE_SEARCH_TEST_DURATION_SEC'] = str(args.arm_track_seconds)
+
     runtime_root = os.getenv(
         "JETSON_FRIEND_ROOT",
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

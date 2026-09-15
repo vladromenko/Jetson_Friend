@@ -82,21 +82,18 @@ def robot(monkeypatch):
     return r
 
 
-def test_manager_found_produces_no_commands_then_resumes_j1_only(robot):
+def test_manager_tracks_and_loses_without_commands_by_default(robot):
     robot._raw_faces.return_value = [BOX]
     for _ in range(20):
         robot._face_tick()
     assert robot.mode == 'FACE_FOUND'
-    robot.node.joint_pub.publish.assert_not_called()
-    robot.node.joints_pub.publish.assert_not_called()
     robot._raw_faces.return_value = []
     robot._face_tick()
-    robot.node.joint_pub.publish.assert_not_called()
-    robot.face_search.last_seen -= 3
+    assert robot.face_target.state == 'lost'
+    robot.target_tracker.search.last_seen -= 3
     robot._face_tick()
     assert robot.mode == 'FACE_SEARCH'
-    msg = robot.node.joint_pub.publish.call_args.args[0]
-    assert (msg.id, msg.joint, msg.time) == (1, 93, 320)
+    robot.node.joint_pub.publish.assert_not_called()
     robot.node.joints_pub.publish.assert_not_called()
 
 

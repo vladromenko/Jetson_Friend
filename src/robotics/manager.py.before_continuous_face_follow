@@ -214,8 +214,6 @@ class RobotManager:
         self.face_follow_deadband_x = float(os.getenv("MILO_FACE_FOLLOW_DEADBAND_X", "0.06"))
         self.face_follow_target_x = float(os.getenv("MILO_FACE_FOLLOW_TARGET_X", "0.36"))
         self.face_follow_step = float(os.getenv("MILO_FACE_FOLLOW_STEP_DEG", "1"))
-        self.face_follow_max_step = float(os.getenv("MILO_FACE_FOLLOW_MAX_STEP_DEG", "1"))
-        self.face_follow_kp = float(os.getenv("MILO_FACE_FOLLOW_KP", "12"))
         self.face_follow_runtime_ms = int(os.getenv("MILO_FACE_FOLLOW_RUNTIME_MS", "320"))
         self.face_follow_settle = float(os.getenv("MILO_FACE_FOLLOW_SETTLE_SEC", "0.12"))
         self.face_follow_sign = int(os.getenv("MILO_FACE_FOLLOW_J1_SIGN", "1"))
@@ -224,12 +222,8 @@ class RobotManager:
             raise ValueError("Face-follow deadband must be 0.03..0.20")
         if not 0.20 <= self.face_follow_target_x <= 0.80:
             raise ValueError("MILO_FACE_FOLLOW_TARGET_X must be 0.20..0.80")
-        if not 0.25 <= self.face_follow_step <= 2.0:
-            raise ValueError("MILO_FACE_FOLLOW_STEP_DEG must be 0.25..2.0")
-        if not 0.5 <= self.face_follow_max_step <= 1.0:
-            raise ValueError("MILO_FACE_FOLLOW_MAX_STEP_DEG must be 0.5..1.0")
-        if not 1.0 <= self.face_follow_kp <= 30.0:
-            raise ValueError("MILO_FACE_FOLLOW_KP must be 1..30")
+        if self.face_follow_step != 1:
+            raise ValueError("Initial face-follow step is intentionally fixed at 1 degree")
         if not 320 <= self.face_follow_runtime_ms <= 1200:
             raise ValueError("Face-follow runtime must be 320..1200 ms")
         if not 0.10 <= self.face_follow_settle <= 1.0:
@@ -503,8 +497,9 @@ class RobotManager:
             if self.control_mode == 'FACE_TRACK':
                 if set(validated) != {1}:
                     raise ValueError('FACE_TRACK permits J1 only')
-                if not self.face_search.minimum <= validated[1] <= self.face_search.maximum:
-                    self._suppressed('joint_limit')
+                origin = self.initial_j1 if self.initial_j1 is not None else self.verified_pose[1]
+                if abs(validated[1] - origin) > 15 or not self.face_search.minimum <= validated[1] <= self.face_search.maximum:
+                    self._suppressed('joint_limit_or_excursion')
                     return False
             return self._publish_targets(validated, runtime_ms, reason)
 
@@ -656,66 +651,16 @@ class RobotManager:
             if self.control_mode != 'FACE_TRACK':
                 self._suppressed('wrong_mode' if self.control_mode != 'DISABLED' else 'arm_disabled')
                 return
-            if target.state == "tracked" and target.center is not None and self._can_move():
-                error_x = float(target.center[0] - self.face_follow_target_x)
-
-                if abs(error_x) <= self.face_follow_deadband_x:
-                    self.face_follow_previous_error = error_x
-                    self.face_follow_previous_delta = 0.0
-                    return
-
-                magnitude = abs(error_x) * self.face_follow_kp
-                magnitude = max(self.face_follow_step, magnitude)
-                magnitude = min(self.face_follow_max_step, magnitude)
-
-                delta = math.copysign(magnitude, error_x) * self.face_follow_sign
-
-                if self.face_follow_previous_error is not None:
-                    reversed_direction = error_x * self.face_follow_previous_error < 0
-                    if reversed_direction and abs(error_x) < self.face_follow_deadband_x + self.face_follow_reverse_margin:
-                        self.face_follow_previous_error = error_x
-                        self.face_follow_previous_delta = 0.0
-                        return
-
-                current_j1 = float(self.state[1])
-                requested_j1 = current_j1 + delta
-                bounded_j1 = max(self.face_search.minimum, min(self.face_search.maximum, requested_j1))
-                delta = bounded_j1 - current_j1
-
-                if abs(delta) < 0.01:
-                    self._suppressed("face_track_joint_limit")
-                    self.face_follow_previous_error = error_x
-                    self.face_follow_previous_delta = 0.0
-                    return
-
-                runtime_ms = int(max(
-                    500,
-                    self.face_follow_runtime_ms,
-                    min(900, 500 + max(0.0, abs(delta) - 1.0) * 110)
-                ))
-
-                if self.test_duration > 0 and self.test_deadline is None:
-                    self.test_deadline = now + self.test_duration
-
-                print('[MILO FACE TRACK] ' + json.dumps(dict(
-                    face_x=target.center[0],
-                    target_x=self.face_follow_target_x,
-                    error=error_x,
-                    requested_delta=delta,
-                    current_commanded_j1=current_j1,
-                    new_commanded_j1=bounded_j1,
-                    mode=self.control_mode
-                )), flush=True)
-
-                moved = self.move_joints(
-                    {1: bounded_j1},
-                    runtime_ms,
-                    'face_track'
-                )
-
-                if moved:
-                    self.face_follow_previous_error = error_x
-                    self.face_follow_previous_delta = delta
+            if target.correction_deg and self._can_move():
+                angle = self.state[1] + target.correction_deg
+                if self.face_search.minimum <= angle <= self.face_search.maximum:
+                    if self.test_deadline is None:
+                        self.test_deadline = now + (self.test_duration or 20.0)
+                    print('[MILO FACE TRACK] ' + json.dumps(dict(face_x=target.center[0],
+                        target_x=self.face_follow_target_x, error=target.error[0],
+                        requested_delta=target.correction_deg, current_commanded_j1=self.state[1],
+                        new_commanded_j1=angle, mode=self.control_mode)), flush=True)
+                    self.move_joint_relative(1, target.correction_deg, max(500, self.face_follow_runtime_ms), 'face_track')
 
     def _face_loop(self):
         while not self.shutdown_request.wait(0.08):
