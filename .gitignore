@@ -1,0 +1,25 @@
+# Local machine configuration
+config.env
+
+# Runtime output
+logs/
+Log/
+data/
+log.txt
+*.log
+*.log.txt
+
+# Python caches and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Local environments, generated dependencies, and large runtime assets
+.venv/
+deps/
+models/
+orbbec_ws/
+
+# OS/editor noise
+.DS_Store

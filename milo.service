@@ -6,9 +6,9 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-WorkingDirectory=/home/vlad/MILO
-ExecStart=/home/vlad/MILO/start_milo.sh
-ExecStop=/home/vlad/MILO/stop_milo.sh
+WorkingDirectory=/home/vlad/Jetson_Friend
+ExecStart=/home/vlad/Jetson_Friend/start_milo.sh
+ExecStop=/home/vlad/Jetson_Friend/stop_milo.sh
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=20

@@ -1,4 +1,4 @@
-# MILO Clean RC13
+# MILO Clean Runtime
 
 MILO runs on the existing STM32 firmware. This configuration does not flash the controller.
 
@@ -22,11 +22,11 @@ Key behavior:
 Install once:
 
 ```bash
-cd ~/MILO_CLEAN_RC13 && ./install.sh
+cd ~/Jetson_Friend && ./install.sh
 ```
 
 Start:
 
 ```bash
-cd ~/MILO_CLEAN_RC13 && ./start_milo.sh
+cd ~/Jetson_Friend && ./start_milo.sh
 ```
