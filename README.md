@@ -1,32 +1,77 @@
-# MILO Clean Runtime
+# MILO RC13 for Jetson
 
-MILO runs on the existing STM32 firmware. This configuration does not flash the controller.
+This repository is the single canonical MILO folder on the Jetson:
 
-Key behavior:
-- DaBai raw/compressed color fallback remains enabled.
-- Local Gemma text+vision, UM02 USB microphone, UACDemo/PipeWire speaker and cat UI are preserved.
-- Face tracking uses J1 for horizontal pan and J3 for limited vertical movement. J2, J4, and J6 are not autonomous tracking joints.
-- J1 pan has a fixed configurable sign. RC9 logs show that decreasing J1 from 104 to 80 degrees moved the face from x=0.54 toward x=0.90. RC13 increases J1 for a face on the right.
-- J4 currently reports about -31 degrees and remains locked. The installed firmware rejects small negative-angle commands for J4.
-- Eye gaze is mirrored horizontally for the user-facing cat display, with quick easing. The eyes respond to the face before the slower arm follows.
-- Face coordinates reset after detection is lost. A face at the edge of the image can be recentered; only an excessively large face pauses motion.
-- Tracking uses small feedback-confirmed commands; J2 and J6 remain stationary in MILO.
-- Voice replies now give more specific support for sadness and share the user's good news. A generic emotional reply is retried once.
-- Questions such as "Where are my glasses?" inspect the current camera image. Confirmed sightings are saved to a persistent local file and may be recalled later as last seen locations. Unseen items are not guessed.
-- Motion is feedback-gated: MILO sends one absolute command, waits for measured feedback to reach the target (or timeout), then sends the next command. It no longer stacks commands while a servo is still moving.
-- `/arm6_feedback` is the angle source. `/arm6_raw` is also subscribed so abnormal calibration/physical positions can be distinguished from UART corruption.
-- A bad/out-of-range joint is blocked independently; other valid axes can continue.
-- The current raised posture is approximately J2=115, J3=106, J4=-31, J6=27. No startup scan or startup pose commands are sent.
-- J3 is limited to the raised range (100 degrees and above); J2 manual commands cannot lower it past 115 degrees, and J6 manual commands are blocked.
+```text
+/home/vlad/Jetson_Friend
+```
 
-Install once:
+The application code matches the verified RC13 package byte-for-byte. It keeps the Friday demo behavior: local Gemma text and vision, Whisper speech recognition, Piper speech, the cat display, DaBai RGB-D vision, object-location memory, emotional response handling, and feedback-gated face tracking with the robot arm.
+
+## Important behavior
+
+- MILO never starts as part of installation.
+- The user service is disabled by default. A reboot does not start MILO.
+- J2 and J6 are not autonomous tracking joints.
+- Arm movement waits for measured feedback before another command is sent.
+- The display rotation is applied from `MILO_DISPLAY_ROTATION` when MILO is started.
+- The STM32 firmware is not flashed by these scripts.
+
+## Install from a fresh clone
+
+Prerequisite: Jetson Ubuntu with ROS 2 Jazzy installed at `/opt/ros/jazzy`.
 
 ```bash
-cd ~/Jetson_Friend && ./install.sh
+git clone https://github.com/vladromenko/Jetson_Friend.git ~/Jetson_Friend
+cd ~/Jetson_Friend
+git checkout clean-single-folder-runtime
+./install.sh
 ```
+
+The installer creates the Python environment, downloads/builds the pinned ROS camera and arm dependencies in `ros_ws`, builds local model executables, downloads model files, and runs the test suite. It finishes with MILO stopped.
+
+## Start and stop manually
 
 Start:
 
 ```bash
-cd ~/Jetson_Friend && ./start_milo.sh
+cd ~/Jetson_Friend
+./start_milo.sh
 ```
+
+Stop from another terminal:
+
+```bash
+cd ~/Jetson_Friend
+./stop_milo.sh
+```
+
+The start command stays attached to the terminal and shows the live log. `Ctrl+C` also stops every child process started by the launcher.
+
+## Verify without starting MILO
+
+```bash
+cd ~/Jetson_Friend
+./install.sh --check
+```
+
+This checks Python imports, all unit tests, model files, executables, and the generated ROS workspace. It does not open the camera, move the arm, start the model server, or launch MILO.
+
+## Repository layout
+
+```text
+milo/                 RC13 Python runtime
+ros_ws/               one camera + micro-ROS + arm workspace
+scripts/              reproducible dependency and display helpers
+models/               downloaded local models (generated, ignored by Git)
+deps/                 llama.cpp and whisper.cpp builds (generated, ignored)
+.venv/                Python environment (generated, ignored)
+tests/                behavior and safety tests
+docs/                 architecture, restore and migration documents
+start_milo.sh         the only normal start command
+stop_milo.sh          clean stop command
+install.sh            install or read-only verification
+config.env            local machine settings (generated, ignored)
+```
+
+See `docs/RUNTIME_LAYOUT.md` for operational details and `docs/DISTRIBUTED_ARCHITECTURE_PROPOSAL.md` before beginning the Raspberry Pi + Hailo split.

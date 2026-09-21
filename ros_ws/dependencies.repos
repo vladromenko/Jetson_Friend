@@ -1,0 +1,13 @@
+repositories:
+  OrbbecSDK_ROS2:
+    type: git
+    url: https://github.com/orbbec/OrbbecSDK_ROS2.git
+    version: 0ea4ab68f5b8ddf22998b7c45d251dc58ea2779e
+  micro-ROS-Agent:
+    type: git
+    url: https://github.com/micro-ROS/micro-ROS-Agent.git
+    version: 7c932329ad5591ef23942ef1962534258c16b000
+  micro_ros_msgs:
+    type: git
+    url: https://github.com/micro-ROS/micro_ros_msgs.git
+    version: b1ef85201e5545d3e07b73f4628bb15836062573

@@ -1,448 +1,181 @@
-# MILO Runtime Architecture And Distributed Migration Proposal
+# MILO runtime architecture and distributed proposal
 
 Date: 2026-09-21
-Branch: `distributed-jetson-pi-architecture`
 
-This document records what is actually running on the Jetson before any Raspberry Pi + Hailo split is attempted. The goal is to preserve the working implementation first, then introduce distribution behind narrow interfaces.
+This document describes the verified Jetson baseline before any Raspberry Pi + Hailo work. The distributed design is a proposal only; the RC13 behavior remains unchanged.
 
-## Executive Summary
+## Verified baseline
 
-The live Jetson is not running the local Mac repository layout directly. The live robot starts `/home/vlad/MILO/start_milo.sh`, where `/home/vlad/MILO` is a symlink to `/home/vlad/MILO_CLEAN_RC13`. That runtime package is named `milo/`.
+The canonical application package on the Jetson is `milo/` in `/home/vlad/Jetson_Friend`. Every Python module and test matches the archived RC13 source byte-for-byte.
 
-The Mac repository at `/Users/vladromenko/Desktop/Scoltech/Jetson friend` is currently on branch `distributed-jetson-pi-architecture`, but its application package is `src/`, not the live `milo/` package. This means the latest working implementation is not represented one-to-one in the local Git tree. Before refactoring for Raspberry Pi, the working Jetson code should be imported or preserved in Git as a baseline.
+The work history leading to RC13 was also checked:
 
-The live process model is simple:
+- RC11 removed a false direction check that could permanently pause tracking when the person moved.
+- RC12 added vertical following, corrected the cat eye direction, and retained the J2/J6 command prohibition.
+- RC13 increased tracking speed while retaining feedback gating, joint limits, and slower motion near the target.
+
+The low-level micro-ROS agent was rebuilt after a broken workspace relocation. A standalone hardware check confirmed `/arm_joint`, `/arm_torque`, `/arm6_feedback`, `/arm6_joints`, and `/arm6_raw`; a real six-joint feedback packet was received without sending a motion command.
+
+## Actual startup graph
 
 ```text
-systemd user service
-  -> /home/vlad/MILO/start_milo.sh
-      -> micro_ros_agent, when CP2104 UART is present
-      -> ros2 launch Orbbec DaBai camera
-      -> llama-server with Gemma multimodal model
-      -> python -m milo.preflight checks
-      -> python -m milo.main
+manual command: ./start_milo.sh
+  |
+  +-- load config.env and lock data/milo.lock
+  +-- apply display rotation
+  +-- source ROS 2 Jazzy and ros_ws/install
+  +-- start micro_ros_agent over CP2104 UART
+  +-- start Orbbec DaBai ROS launch
+  +-- wait for color and depth topics
+  +-- start llama-server with Gemma + mmproj
+  +-- preflight: text, vision, audio, camera, face detector, arm feedback
+  `-- python -m milo.main
+        +-- ROS executor thread
+        +-- camera/face/tracking thread
+        +-- proactive observation thread
+        +-- voice interaction loop
+        `-- pygame cat display
 ```
 
-The core robot behavior is a single Python process. ROS is used as a hardware transport for camera frames and arm messages, not as the main application framework.
+`start_milo.sh` owns every process it starts and stops the complete process group on `Ctrl+C`, TERM, or launcher failure. A file lock prevents two MILO instances.
 
-## Live Jetson Evidence
-
-Observed over SSH on Jetson host `192.168.0.177`:
+## Runtime execution flow
 
 ```text
-/home/vlad/MILO -> /home/vlad/MILO_CLEAN_RC13
-/home/vlad/MILO_CURRENT -> /home/vlad/MILO_CLEAN_RC13
-/home/vlad/MILO_WORKING -> /home/vlad/MILO_CLEAN_RC13
-```
-
-Live relevant processes:
-
-```text
-/home/vlad/Jetson_Friend/src/control_server.py
-bash /home/vlad/MILO/start_milo.sh
-ros2 launch .../orbbec_camera/launch/dabai_dcw2.launch.py
-/opt/ros/jazzy/lib/rclcpp_components/component_container ... camera_container
-ros2 daemon --ros-domain-id 30
-/home/vlad/Jetson_Friend/deps/llama.cpp/build/bin/llama-server ...
-/home/vlad/Jetson_Friend/.venv/bin/python -m milo.main
-```
-
-The runtime imports models, virtualenv, Orbbec workspace, and llama.cpp from `/home/vlad/Jetson_Friend`, but the application code being executed is under `/home/vlad/MILO_CLEAN_RC13/milo`.
-
-## Startup Chain
-
-`milo.service`
-
-```text
-WorkingDirectory=/home/vlad/MILO
-ExecStart=/home/vlad/MILO/start_milo.sh
-ExecStop=/home/vlad/MILO/stop_milo.sh
-Restart=on-failure
-```
-
-`start_milo.sh`
-
-```text
-load config.env
-export PYTHONPATH=/home/vlad/MILO
-source ROS 2 Jazzy
-source interfaces workspace
-source micro-ROS workspace
-source Orbbec workspace
-lock data/milo.lock
-start or reuse micro_ros_agent over CP2104 UART
-start or recover DaBai camera ROS launch
-wait for color/depth topics
-start or recover llama-server
-run LLM/VLM/audio/vision preflight
-print arm feedback
-exec python -m milo.main
-```
-
-Important startup dependency: `APP_PYTHON=/home/vlad/Jetson_Friend/.venv/bin/python`, so the live `milo` package executes inside the Jetson_Friend virtualenv.
-
-## Runtime Execution Flow
-
-`milo.main`
-
-```text
-Config.load()
-FaceUI()
-RosRuntime()
-VisionEngine()
-LocalModel()
-ObjectMemory()
-VoiceIO()
-FaceFollower()
-
 Milo.start()
-  FaceUI.start()
-  RosRuntime.start()
-  startup_lift()
-  wait for camera color frame
-  start vision thread
-  start proactive thread
-  enter voice loop
+  -> FaceUI.start()
+  -> RosRuntime.start()
+  -> startup_lift(), only when enabled and safe feedback is fresh
+  -> wait for a real DaBai frame
+  -> vision loop
+       latest_color -> detect_face -> gaze -> FaceFollower.plan
+       -> ArmSafetyGate -> /arm_joint
+  -> proactive loop
+       fresh frame -> VLM observation -> optional spoken observation
+  -> voice loop
+       microphone -> VAD -> Whisper -> intent routing
+       -> Gemma text or VLM -> memory update -> Piper -> speaker
 ```
 
-Main loops:
+## Module ownership
 
-```text
-voice loop:
-  VoiceIO.listen()
-  visual_intent()
-  LocalModel.chat() or LocalModel.describe()
-  VoiceIO.speak()
-
-vision loop:
-  read RosRuntime.latest_color
-  VisionEngine.detect_face()
-  FaceUI.set_gaze()
-  FaceFollower.plan()
-  RosRuntime.command_joint()
-
-proactive loop:
-  inspect fresh camera frame
-  ask LocalModel.observe_person()
-  speak only when proactive conditions are met
-```
-
-## Module Map
-
-Live package: `/home/vlad/MILO_CLEAN_RC13/milo`.
-
-| Module | Runtime role | Hardware / service dependency |
+| Module | Responsibility | Direct dependencies |
 | --- | --- | --- |
-| `main.py` | Orchestrates MILO, starts UI/ROS/vision/proactive/voice loops | All major services |
-| `config.py` | Reads environment into immutable config | `config.env` |
-| `ros_runtime.py` | Owns rclpy node, subscribes camera/arm feedback, publishes arm commands | ROS 2 Jazzy, `sensor_msgs`, `arm_msgs`, DaBai, STM32 |
-| `safety.py` | Feedback-gated arm safety and local motion limits | Arm feedback messages |
-| `startup.py` | Small helper for startup joint stepping | Arm startup lift |
-| `tracking.py` | Converts face error into bounded joint commands | Face observation, arm safety state |
-| `vision.py` | Face detection through TensorRT YuNet, ONNX DNN fallback, Haar fallback; JPEG encoding | TensorRT, CUDA, OpenCV |
-| `audio.py` | Microphone VAD, Whisper STT, Piper TTS, playback device selection | sounddevice/scipy, ALSA/PipeWire, whisper.cpp, piper |
-| `llm.py` | OpenAI-compatible HTTP client for local text/VLM llama-server | llama-server `/v1/chat/completions` |
-| `memory.py` | Small JSON object-location memory | Local filesystem |
-| `intents.py` | Detects visual/object questions | Pure Python |
-| `gaze.py` | Maps camera face center into cat eye gaze | Pure Python |
-| `ui.py` | Bridges runtime events to cat face UI | `cat_face.py` |
-| `cat_face.py` | Display UI for animated face | Local display `:0` |
-| `preflight.py` | Validates audio, model, VLM, real camera frame, detector | All selected subsystems |
+| `milo/main.py` | Lifecycle and voice/vision/proactive orchestration | Every application subsystem |
+| `milo/config.py` | Environment parsing and validated configuration | `config.env` |
+| `milo/ros_runtime.py` | ROS node, camera subscriptions, arm feedback and commands | rclpy, sensor_msgs, arm_msgs |
+| `milo/safety.py` | Per-joint limits, feedback stability and command gating | Arm feedback |
+| `milo/startup.py` | Bounded startup pose stepping | Safety gate and arm transport |
+| `milo/tracking.py` | Face error to safe J1/J3 tracking intent | Face observations and joint state |
+| `milo/vision.py` | YuNet face detection and image encoding | OpenCV, optional TensorRT engine |
+| `milo/audio.py` | VAD, Whisper STT, Piper TTS, device selection | sounddevice, scipy, binaries |
+| `milo/llm.py` | Local OpenAI-compatible text/VLM client | llama-server HTTP API |
+| `milo/memory.py` | Persistent last-seen object locations | Local JSON data |
+| `milo/intents.py` | Visual and object-location intent routing | Pure Python |
+| `milo/gaze.py` | Camera coordinates to cat-eye coordinates | Pure Python |
+| `milo/ui.py`, `cat_face.py` | User-facing animated display | pygame and X11 display |
+| `milo/preflight.py` | End-to-end dependency checks before main | Selected runtime subsystems |
 
-Supporting files:
-
-| File | Role |
-| --- | --- |
-| `scripts/serve_model.sh` | Starts `llama-server` with text model and mmproj |
-| `milo.service` | systemd user unit |
-| `config.env` | Live machine configuration |
-| `tests/test_*.py` | Unit tests around startup, config, audio, LLM, safety, tracking, ROS decode |
-
-## Hardware And ROS Integration
-
-ROS domain:
+## Hardware and external dependencies
 
 ```text
-ROS_DOMAIN_ID=30
+ROS 2 Jazzy (/opt/ros/jazzy)
+  `-- ros_ws/install
+       +-- arm_msgs (tracked custom source)
+       +-- micro_ros_msgs (pinned upstream commit)
+       +-- micro_ros_agent (pinned upstream commit)
+       `-- OrbbecSDK_ROS2 (pinned upstream commit)
+
+CP2104 serial @ 2,000,000 baud
+  <-> STM32 micro-ROS firmware
+      +-- /arm_joint command
+      +-- /arm_torque command
+      +-- /arm6_feedback measured angles
+      +-- /arm6_joints state
+      `-- /arm6_raw diagnostic state
+
+Orbbec DaBai
+  -> /camera/color/image_raw
+  -> /camera/depth/image_raw
+  `-- compressed color fallback
+
+Local AI
+  +-- llama.cpp + Gemma multimodal GGUF + mmproj
+  +-- whisper.cpp + base.en model
+  +-- Piper + en_US Ryan voice
+  `-- YuNet ONNX face detector
+
+USB/UI
+  +-- Audio-Technica UM02 input
+  +-- UACDemo output
+  `-- X11 display on DP-1
 ```
 
-Camera:
+## Safety invariants to preserve
+
+- No command is sent from stale camera or arm feedback.
+- Commands are absolute, bounded, and feedback-gated.
+- One unsafe joint does not disable safe axes, but it cannot be commanded.
+- J2 is only used by the explicitly configured startup lift; J6 is never commanded.
+- Tracking must remain functional when the TensorRT face engine is absent by using ONNX/Haar fallback.
+- Loss of Raspberry Pi connectivity must stop body commands without stopping Jetson conversation or memory.
+
+## Minimal-change Jetson/Pi design
+
+Do not split `milo.main` or convert the application into many ROS nodes. Introduce one body boundary and preserve current call sites through a local adapter.
 
 ```text
-Driver: Orbbec DaBai DCW2 ROS launch
-Color topic: /camera/color/image_raw
-Depth topic: /camera/depth/image_raw
-Compressed fallback: /camera/color/image_raw/compressed
+MILO application on Jetson
+  -> RobotBody interface
+       +-- LocalRobotBody (current ros_runtime behavior)
+       `-- RosRobotBodyClient
+             <network ROS 2>
+             -> Raspberry Pi Body Server
+                  +-- DaBai acquisition
+                  +-- Hailo face/person/object inference
+                  +-- CP2104 arm transport
+                  +-- feedback normalization and watchdog
+                  `-- optional display/audio transport later
 ```
 
-Arm:
-
-```text
-micro-ROS agent: serial CP2104 at 2,000,000 baud
-Command topic: /arm_joint
-Feedback topic: /arm6_feedback
-Raw topic: /arm6_raw
-Message types: arm_msgs/msg/ArmJoint, arm_msgs/msg/ArmJoints
-Allowed runtime joints: 1,3,4,5
-J2: startup lift only
-J6: never commanded
-```
-
-Model server:
-
-```text
-llama-server host: 127.0.0.1
-llama-server port: 8081
-Text/VLM model: Gemma multimodal GGUF + mmproj
-```
-
-Audio:
-
-```text
-Input hint: UM02
-Output hint: UACDemo
-STT: whisper.cpp
-TTS: piper
-```
-
-## Dependency Graph
-
-```text
-start_milo.sh
-  -> config.env
-  -> ROS 2 Jazzy setup
-  -> interfaces workspace
-  -> micro-ROS workspace
-  -> Orbbec workspace
-  -> micro_ros_agent
-  -> Orbbec DaBai camera launch
-  -> scripts/serve_model.sh
-      -> llama-server
-          -> Gemma GGUF
-          -> mmproj GGUF
-  -> python -m milo.preflight
-      -> Config
-      -> VoiceIO
-      -> LocalModel
-      -> VisionEngine
-      -> RosRuntime
-  -> python -m milo.main
-      -> Config
-      -> FaceUI
-          -> cat_face.Face
-      -> RosRuntime
-          -> ArmSafetyGate
-          -> rclpy MultiThreadedExecutor
-          -> sensor_msgs Image/CompressedImage
-          -> arm_msgs ArmJoint/ArmJoints
-      -> VisionEngine
-          -> TensorRT/CUDA YuNet
-          -> OpenCV DNN fallback
-          -> Haar fallback
-      -> LocalModel
-          -> llama-server HTTP API
-      -> VoiceIO
-          -> sounddevice/scipy
-          -> whisper.cpp
-          -> piper
-          -> ALSA/PipeWire
-      -> FaceFollower
-      -> ObjectMemory
-      -> visual_intent
-      -> camera_to_gaze
-```
-
-## Git Parity Check
-
-Live Jetson working tree:
-
-```text
-/home/vlad/Jetson_Friend: Git branch main, clean
-/home/vlad/MILO_CLEAN_RC13: live runtime code, package milo/
-```
-
-Local Mac Git tree:
-
-```text
-/Users/vladromenko/Desktop/Scoltech/Jetson friend
-branch: distributed-jetson-pi-architecture
-package layout: src/
-```
-
-Local Mac branch already had unrelated pending changes before this document was added:
-
-```text
-README.md
-config.env.example
-src/main.py
-src/robotics/manager.py
-start_milo_robot.sh
-tests/test_face_search.py
-docs/INTEGRATED_ARM.md
-docs/MANIPULATION_FOUNDATION.md
-src/robotics/*
-start_manipulation_dry_run.sh
-tests/test_manipulation.py
-tools/manipulation_dry_run.py
-```
-
-Conclusion: the live implementation should be imported into Git before behavior refactoring. The safest target is a baseline commit or branch containing the exact `milo/` package and launcher from `/home/vlad/MILO_CLEAN_RC13`, plus checksums.
-
-## Proposed Distributed Architecture
-
-Keep the current Python application structure and introduce one boundary: `RobotBody`.
-
-The Jetson remains the brain:
-
-```text
-conversation state
-LLM/VLM orchestration
-speech loop, unless audio hardware moves later
-memory
-high-level behavior
-UI expression policy
-object/person reasoning
-```
-
-Raspberry Pi + Hailo becomes the body:
-
-```text
-camera acquisition, if the camera physically moves to Pi
-Hailo inference for face/person/object detection
-arm microcontroller bridge, if CP2104 moves to Pi
-low-level feedback normalization
-optional audio IO, only if microphones/speakers move to Pi
-body health/status service
-```
-
-The first abstraction should preserve call sites:
+The first interface should expose only stable body facts and commands:
 
 ```python
-body.latest_color
-body.camera_fresh()
-body.latest_feedback
-body.ready_joints()
-body.command_joint(joint, target)
-body.detect_face(frame)  # later optional remote call
+class RobotBody:
+    def latest_frame(self): ...
+    def latest_detections(self): ...
+    def joint_state(self): ...
+    def command_joint(self, joint_id, angle, runtime_ms): ...
+    def health(self): ...
 ```
 
-Then provide two implementations:
+`LocalRobotBody` delegates to the existing `RosRuntime`; therefore the baseline continues to work during the migration.
 
-```text
-LocalJetsonBody
-  wraps current RosRuntime + VisionEngine + FaceFollower/Safety behavior
+## Placement proposal
 
-RemotePiBody
-  talks to Raspberry Pi over a narrow network protocol
-  keeps the same MILO main loop API
-```
+| Capability | Initial owner | Distributed target | Reason |
+| --- | --- | --- | --- |
+| Dialogue, policy, memory | Jetson | Jetson | Stateful high-level behavior |
+| Gemma text/VLM | Jetson | Jetson | Existing model runtime and RAM |
+| Whisper/Piper logic | Jetson | Jetson initially | Avoid changing a working voice loop |
+| Cat expression policy | Jetson | Jetson | Part of social behavior |
+| Display rendering | Jetson | Pi only if display cable moves | Physical placement decision |
+| RGB-D acquisition | Jetson | Raspberry Pi | Camera belongs with the body |
+| Face/person/object detection | Jetson CPU/OpenCV | Hailo on Pi | Low-latency body perception |
+| Tracking decision | Jetson initially | Split: target on Jetson, servo loop on Pi | Network-safe control |
+| micro-ROS serial bridge | Jetson | Raspberry Pi | Keep arm link physically local |
+| Hard joint limits/watchdog | Jetson | Both Jetson and Pi | Defense in depth |
 
-## Minimal-Change Migration Plan
+## Migration sequence
 
-1. Preserve the live baseline.
+1. Freeze and manually verify this RC13 baseline. Tag the verified commit only after the hardware test.
+2. Create a new feature branch for distributed work; never develop it on the baseline branch.
+3. Add `RobotBody` plus `LocalRobotBody` with characterization tests. Runtime behavior must remain identical.
+4. Add body health/heartbeat messages and a Pi process that publishes no hardware commands yet.
+5. Move DaBai acquisition to Pi. Jetson consumes frames through the body interface; keep local fallback.
+6. Move face/person detection to Hailo and transmit compact detections, not continuous full-resolution frames, for tracking.
+7. Move the CP2104 micro-ROS agent and low-level command watchdog to Pi. Preserve the existing message types and limits.
+8. Decide separately whether display and audio hardware move. They are not prerequisites for the camera/arm split.
+9. Remove the local fallback only after repeated cold-boot, disconnect, latency, and emergency-stop tests.
 
-   Import `/home/vlad/MILO_CLEAN_RC13` into Git or archive it as a tracked baseline. Do not rewrite it during import. Verify checksums and keep `milo.service`, `start_milo.sh`, `config.env.example`, `milo/`, `scripts/`, and tests.
-
-2. Introduce a body interface without moving hardware.
-
-   Create `RobotBody` around the current `RosRuntime`, `VisionEngine`, and arm safety calls. Keep the implementation local on Jetson. `milo.main` should call `body`, but behavior should remain unchanged.
-
-3. Split perception transport from perception inference.
-
-   Keep camera frame subscription separate from face detection. This allows either:
-
-   ```text
-   Jetson subscribes ROS camera -> Jetson detects face
-   Jetson receives Pi detection results -> Jetson commands behavior
-   Pi publishes camera/detections -> Jetson consumes body state
-   ```
-
-4. Bring Raspberry Pi online as a passive body node.
-
-   On the Pi, install only the runtime needed to report health and optionally run Hailo inference. Start with a read-only service:
-
-   ```text
-   /health
-   /camera/status
-   /detections/latest
-   /arm/status
-   ```
-
-   No arm commands in the first Pi service.
-
-5. Move Hailo inference first.
-
-   Send camera frames to Hailo locally on the Pi only if the camera is attached there. If the camera stays on Jetson, do not stream raw video to Pi as the first version; keep Jetson vision local until the physical camera placement changes.
-
-6. Move arm bridge only after telemetry is stable.
-
-   If CP2104 moves to Pi, Pi should own `micro_ros_agent` and expose arm status/command endpoints. Jetson should still perform high-level safety checks before sending commands, and Pi should enforce local command limits as a second safety layer.
-
-7. Keep ROS where it already works.
-
-   Avoid rewriting the whole system into ROS nodes. Use ROS for hardware transports and use a small HTTP/gRPC/WebSocket or ROS topic bridge only at the body boundary.
-
-## Recommended Network Boundary
-
-For minimum code churn:
-
-```text
-Jetson -> Pi:
-  command_joint(joint, target, runtime_ms)
-  set_body_mode(passive|supervised|active)
-  request_snapshot()
-
-Pi -> Jetson:
-  body_status
-  camera_frame metadata
-  detections
-  arm feedback
-  command acknowledgements
-```
-
-Preferred first protocol: HTTP + Server-Sent Events or WebSocket.
-
-Reason: the current app is a regular Python application, not a ROS graph. A simple body service is easier to test from the Jetson and Mac. ROS can remain underneath on whichever machine owns the hardware.
-
-## Safety Rules For The Split
-
-1. Never command the arm from both Jetson and Pi at the same time.
-2. Keep one owner for CP2104/micro-ROS agent.
-3. Preserve feedback-gated commands.
-4. Keep J6 disabled.
-5. Keep startup lift supervised and measurable.
-6. Treat stale camera/feedback as body degraded, not as a reason to guess.
-7. Pi-side service must reject commands outside local limits even if Jetson sends them.
-
-## Raspberry Pi Status
-
-Configured SSH profile:
-
-```text
-Host rpi
-HostName 192.168.1.7
-User vlados
-IdentityFile ~/.ssh/id_ed25519
-```
-
-Current result on 2026-09-21: SSH connection to `192.168.1.7:22` timed out. Pi setup is blocked until the reachable IP/network path is known or the Pi is brought onto the same network.
-
-Once reachable, first setup steps should be:
-
-```text
-hostname / OS / architecture inventory
-Hailo device visibility
-Python version and venv plan
-camera device inventory
-ROS 2 availability, only if needed locally
-systemd user service capability
-network latency to Jetson
-```
-
-## Next Concrete Actions
-
-1. Import or mirror `/home/vlad/MILO_CLEAN_RC13` into Git as the working baseline.
-2. Add a `RobotBody` interface around the existing local runtime.
-3. Add a passive Pi body service skeleton and health check only after SSH is reachable.
-4. Add tests that prove the Jetson behavior can run with `LocalJetsonBody` unchanged.
-5. Only then move Hailo detection or arm ownership to Pi.
+Each stage must keep a runnable local mode and have an explicit rollback commit. The Raspberry Pi work begins only after the user confirms the baseline camera, arm, display, speech, vision, and interaction behavior.

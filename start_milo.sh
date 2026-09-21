@@ -10,6 +10,10 @@ export DISPLAY="${DISPLAY:-${DISPLAY_NAME:-:0}}"
 PYTHON="${APP_PYTHON:-python3}"
 [ -x "$PYTHON" ] || PYTHON=python3
 
+if [ -x "$ROOT/scripts/set_display.sh" ]; then
+  "$ROOT/scripts/set_display.sh" "${MILO_DISPLAY_ROTATION:-left}" >/dev/null 2>&1 || true
+fi
+
 exec 9>"$ROOT/data/milo.lock"
 flock -n 9 || { echo '[FATAL] MILO is already running'; exit 1; }
 if pgrep -f '[p]ython.*-m milo.main' >/dev/null; then
@@ -34,9 +38,12 @@ trap 'exit 143' TERM
 
 set +u
 source /opt/ros/jazzy/setup.bash
-[ ! -f "$INTERFACES_WS/install/setup.bash" ] || source "$INTERFACES_WS/install/setup.bash"
-[ ! -f "$MICROROS_WS/install/setup.bash" ] || source "$MICROROS_WS/install/setup.bash"
-[ ! -f "$ORBBEC_WS/install/setup.bash" ] || source "$ORBBEC_WS/install/setup.bash"
+declare -A SOURCED_WORKSPACES=()
+for workspace in "$INTERFACES_WS" "$MICROROS_WS" "$ORBBEC_WS"; do
+  [ -n "${SOURCED_WORKSPACES[$workspace]:-}" ] && continue
+  [ ! -f "$workspace/install/setup.bash" ] || source "$workspace/install/setup.bash"
+  SOURCED_WORKSPACES[$workspace]=1
+done
 set -u
 
 if [ ! -e "$ARM_SERIAL" ]; then

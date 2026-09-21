@@ -19,7 +19,14 @@ __pycache__/
 .venv/
 deps/
 models/
-orbbec_ws/
+ros_ws/build/
+ros_ws/install/
+ros_ws/log/
+ros_ws/src/OrbbecSDK_ROS2/
+ros_ws/src/micro-ROS-Agent/
+ros_ws/src/micro_ros_msgs/
+hardware_sources/
+tools_external/
 
 # OS/editor noise
 .DS_Store
