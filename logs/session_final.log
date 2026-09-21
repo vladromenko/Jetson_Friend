@@ -1,0 +1,579 @@
+[READY] micro-ROS agent
+[START] DaBai camera
+[WAIT] DaBai color/depth
+[READY] DaBai color
+[READY] DaBai depth
+[START] local Gemma + mmproj
+[READY] local Gemma server
+[CHECK] model text + vision response
+[PREFLIGHT] LLM answer: READY
+[PREFLIGHT] VLM answer: Yes, the image input was accepted.
+[CHECK] audio devices
+[AUDIO] microphone=UM02: USB Audio (hw:1,0)
+[AUDIO] speaker=pipewire:alsa_output.usb-Jieli_Technology_UACDemoV1.0_4150344C36313514-00.analog-stereo
+[PREFLIGHT] microphone: UM02: USB Audio (hw:1,0)
+[PREFLIGHT] speaker: pipewire:alsa_output.usb-Jieli_Technology_UACDemoV1.0_4150344C36313514-00.analog-stereo
+[CHECK] application-level DaBai + face detector
+[VISION] face detector=OpenCV DNN YuNet compatibility decoder
+[ARM] STM32 command subscriber matched
+[ROS] runtime started
+[CAMERA] receiving compressed color (480, 640, 3)
+[PREFLIGHT] real DaBai frame: shape=(480, 640, 3)
+[PREFLIGHT] vision backend: OpenCV DNN YuNet compatibility decoder
+[PREFLIGHT] face: none in current frame (detector executed successfully)
+[CHECK] arm feedback (J2 raised at 115; J4/J6 locked in MILO)
+joint1: 90
+joint2: 115
+joint3: 106
+joint4: -31
+joint5: 90
+joint6: 27
+time: 8944
+---
+[START] MILO Clean RC13
+pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+[VISION] face detector=OpenCV DNN YuNet compatibility decoder
+[AUDIO] microphone=UM02: USB Audio (hw:1,0)
+[AUDIO] speaker=pipewire:alsa_output.usb-Jieli_Technology_UACDemoV1.0_4150344C36313514-00.analog-stereo
+[ARM] STM32 command subscriber matched
+[ROS] runtime started
+[CAMERA] receiving compressed color (480, 640, 3)
+[READY] application receives DaBai color frames (480, 640, 3)
+[READY] MILO Clean RC13 runtime
+[READY] voice + DaBai vision + cat face + feedback-gated J1 pan + J3 tilt face following
+[CAMERA] receiving raw color (480, 640, 3)
+[FACE] no face
+[ARM] ready: J1=90[89..179] J3=106[100..121] J5=90[70..110]
+[FACE] no face
+MILO: Hello! I'm MILO, your little robot assistant. What can I help you with today?
+[FACE] no face
+[FACE] no face
+[FACE] no face
+[FACE] no face
+[FACE] no face
+[FACE] no face
+[FACE] no face
+[FACE] found x=0.936 y=0.529 score=0.760 roll=-7.6
+[ARM] command J1 -> 99 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 90 -> 96 (target 99)
+[ARM ACK] J1 reached 99 (target 99)
+[ARM] command J3 -> 105 (250 ms)
+[MOTION READY] face following active
+[FACE] found x=0.617 y=0.555 score=0.913 roll=-9.5
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 106 -> 105 (target 105)
+[ARM ACK] J3 reached 105 (target 105)
+[ARM] command J1 -> 103 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.626 y=0.531 score=0.920 roll=-7.2
+[ARM ACK] J1 moving 99 -> 103 (target 103)
+[ARM ACK] J1 reached 103 (target 103)
+[ARM] command J1 -> 106 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.628 y=0.515 score=0.928 roll=-3.4
+[ARM ACK] J1 moving 103 -> 106 (target 106)
+[ARM ACK] J1 reached 106 (target 106)
+[ARM] command J1 -> 112 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 106 -> 112 (target 112)
+[ARM ACK] J1 reached 112 (target 112)
+[ARM] command J1 -> 117 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.621 y=0.518 score=0.927 roll=1.2
+[ARM ACK] J1 moving 112 -> 117 (target 117)
+[ARM ACK] J1 reached 117 (target 117)
+[ARM] command J1 -> 119 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.578 y=0.513 score=0.921 roll=-7.3
+[ARM ACK] J1 moving 117 -> 119 (target 119)
+[ARM ACK] J1 reached 119 (target 119)
+[ARM] command J1 -> 122 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 119 -> 122 (target 122)
+[ARM ACK] J1 reached 122 (target 122)
+[FACE] found x=0.583 y=0.516 score=0.921 roll=-4.3
+[ARM] command J1 -> 125 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.578 y=0.510 score=0.914 roll=-3.5
+[ARM WARN] J1 target 125, feedback=122, raw=1612
+[ARM] command J1 -> 124 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.576 y=0.510 score=0.918 roll=-3.4
+[ARM ACK] J1 moving 122 -> 124 (target 124)
+[ARM ACK] J1 reached 124 (target 124)
+[ARM] command J1 -> 125 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.541 y=0.509 score=0.921 roll=-2.4
+[ARM ACK] J1 moving 124 -> 125 (target 125)
+[ARM ACK] J1 reached 125 (target 125)
+[ARM] command J1 -> 126 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.537 y=0.508 score=0.922 roll=-1.1
+[FACE] found x=0.633 y=0.330 score=0.919 roll=-1.7
+[ARM WARN] J1 target 126, feedback=125, raw=1577
+[ARM] command J1 -> 130 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 125 -> 130 (target 130)
+[ARM ACK] J1 reached 130 (target 130)
+[ARM] command J1 -> 133 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.585 y=0.318 score=0.923 roll=-2.3
+[ARM ACK] J1 moving 130 -> 133 (target 133)
+[ARM ACK] J1 reached 133 (target 133)
+[ARM] command J1 -> 134 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.543 y=0.315 score=0.918 roll=-0.8
+[ARM ACK] J1 moving 133 -> 134 (target 134)
+[ARM ACK] J1 reached 134 (target 134)
+[ARM] command J3 -> 112 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 105 -> 107 (target 112)
+[FACE] found x=0.667 y=0.341 score=0.915 roll=-5.9
+[ARM ACK] J3 reached 111 (target 112)
+[ARM] command J3 -> 117 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 111 -> 112 (target 117)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 reached 116 (target 117)
+[ARM] command J3 -> 114 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.484 y=0.577 score=0.914 roll=-2.6
+[ARM ACK] J3 moving 116 -> 114 (target 114)
+[ARM ACK] J3 reached 114 (target 114)
+[ARM] command J3 -> 111 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 114 -> 113 (target 111)
+[FACE] found x=0.491 y=0.561 score=0.915 roll=-0.0
+[ARM ACK] J3 reached 111 (target 111)
+[ARM] command J3 -> 109 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 111 -> 110 (target 109)
+[ARM ACK] J3 reached 110 (target 109)
+[ARM] command J3 -> 106 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 110 -> 107 (target 106)
+[ARM ACK] J3 reached 107 (target 106)
+[FACE] found x=0.552 y=0.546 score=0.921 roll=1.9
+[ARM] command J1 -> 135 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 134 -> 135 (target 135)
+[ARM ACK] J1 reached 135 (target 135)
+[ARM] command J1 -> 136 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.535 y=0.469 score=0.922 roll=0.1
+[ARM ACK] J1 moving 135 -> 136 (target 136)
+[ARM ACK] J1 reached 136 (target 136)
+[ARM] command J3 -> 107 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.540 y=0.461 score=0.921 roll=-1.4
+[FACE] found x=0.546 y=0.462 score=0.913 roll=-3.6
+[ARM WARN] J3 target 107, feedback=106, raw=1808
+[ARM] command J1 -> 137 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 136 -> 137 (target 137)
+[ARM ACK] J1 reached 137 (target 137)
+[FACE] found x=0.533 y=0.457 score=0.913 roll=-1.6
+[ARM] command J3 -> 107 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.516 y=0.460 score=0.921 roll=-1.0
+[ARM WARN] J3 target 107, feedback=106, raw=1808
+[ARM] command J3 -> 107 (250 ms)
+[FACE] found x=0.496 y=0.465 score=0.926 roll=-2.8
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.175 y=0.471 score=0.913 roll=-12.1
+[ARM WARN] J3 target 107, feedback=106, raw=1808
+[ARM] command J1 -> 128 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.188 y=0.465 score=0.907 roll=-13.7
+[FACE] found x=0.188 y=0.467 score=0.911 roll=-14.9
+[ARM WARN] J1 target 128, feedback=137, raw=1429
+[ARM] command J1 -> 128 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.269 y=0.471 score=0.911 roll=-10.5
+[ARM ACK] J1 moving 137 -> 128 (target 128)
+[ARM ACK] J1 reached 128 (target 128)
+[ARM] command J1 -> 120 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 128 -> 121 (target 120)
+[ARM ACK] J1 reached 121 (target 120)
+[ARM] command J1 -> 119 (250 ms)
+[MOTION READY] face following active
+[FACE] found x=0.500 y=0.466 score=0.911 roll=-7.9
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 121 -> 120 (target 119)
+[ARM ACK] J1 reached 120 (target 119)
+[ARM] command J1 -> 122 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 120 -> 119 (target 122)
+[ARM ACK] J1 reached 122 (target 122)
+[FACE] found x=0.864 y=0.490 score=0.921 roll=9.5
+[ARM] command J1 -> 131 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 122 -> 131 (target 131)
+[ARM ACK] J1 reached 131 (target 131)
+[ARM] command J1 -> 140 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.796 y=0.502 score=0.918 roll=7.1
+[ARM ACK] J1 moving 131 -> 140 (target 140)
+[ARM ACK] J1 reached 140 (target 140)
+[ARM] command J1 -> 147 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.615 y=0.476 score=0.917 roll=8.8
+[ARM ACK] J1 moving 140 -> 147 (target 147)
+[ARM ACK] J1 reached 147 (target 147)
+[ARM] command J3 -> 107 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.403 y=0.450 score=0.915 roll=-1.0
+[FACE] found x=0.397 y=0.443 score=0.914 roll=-0.7
+[ARM WARN] J3 target 107, feedback=106, raw=1809
+[ARM] command J3 -> 108 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.393 y=0.461 score=0.914 roll=-1.8
+[ARM ACK] J3 moving 106 -> 107 (target 108)
+[ARM ACK] J3 reached 107 (target 108)
+[ARM] command J1 -> 143 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 147 -> 143 (target 143)
+[ARM ACK] J1 reached 143 (target 143)
+[ARM] command J3 -> 108 (250 ms)
+[MOTION READY] face following active
+[FACE] found x=0.432 y=0.463 score=0.921 roll=-1.0
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 107 -> 106 (target 108)
+[FACE] found x=0.455 y=0.455 score=0.905 roll=-2.0
+[ARM WARN] J3 target 108, feedback=106, raw=1799
+[ARM] command J1 -> 142 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.452 y=0.467 score=0.916 roll=-7.2
+[ARM ACK] J1 moving 143 -> 142 (target 142)
+[ARM ACK] J1 reached 142 (target 142)
+[ARM] command J1 -> 141 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.465 y=0.466 score=0.905 roll=-5.0
+[ARM ACK] J1 moving 142 -> 141 (target 141)
+[ARM ACK] J1 reached 141 (target 141)
+[FACE] found x=0.476 y=0.470 score=0.905 roll=-2.5
+[FACE] found x=0.476 y=0.467 score=0.896 roll=-3.2
+[FACE] found x=0.475 y=0.468 score=0.902 roll=-1.6
+[FACE] found x=0.474 y=0.471 score=0.899 roll=-2.3
+[ARM] command J3 -> 107 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.447 y=0.467 score=0.920 roll=0.2
+[ARM WARN] J3 target 107, feedback=106, raw=1799
+[FACE] found x=0.455 y=0.468 score=0.912 roll=1.8
+[ARM] command J1 -> 140 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 141 -> 140 (target 140)
+[ARM ACK] J1 reached 140 (target 140)
+[FACE] found x=0.478 y=0.468 score=0.906 roll=0.1
+[ARM] command J1 -> 141 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.650 y=0.517 score=0.890 roll=-1.2
+[ARM ACK] J1 moving 140 -> 141 (target 141)
+[ARM ACK] J1 reached 141 (target 141)
+[ARM] command J1 -> 150 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.716 y=0.508 score=0.898 roll=-1.4
+[ARM ACK] J1 moving 141 -> 150 (target 150)
+[ARM ACK] J1 reached 150 (target 150)
+[ARM] command J1 -> 155 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.518 y=0.498 score=0.917 roll=-0.8
+[ARM ACK] J1 moving 150 -> 155 (target 155)
+[ARM ACK] J1 reached 155 (target 155)
+[ARM] command J1 -> 156 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.584 y=0.543 score=0.870 roll=12.7
+[ARM WARN] J1 target 156, feedback=155, raw=1200
+[ARM] command J1 -> 157 (250 ms)
+[MOTION READY] face following active
+[FACE] found x=0.572 y=0.549 score=0.857 roll=1.4
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 155 -> 157 (target 157)
+[ARM ACK] J1 reached 157 (target 157)
+[ARM] command J3 -> 105 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.554 y=0.537 score=0.877 roll=8.9
+[ARM ACK] J3 moving 106 -> 105 (target 105)
+[ARM ACK] J3 reached 105 (target 105)
+[ARM] command J1 -> 158 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.555 y=0.512 score=0.885 roll=7.8
+[FACE] found x=0.551 y=0.515 score=0.893 roll=3.4
+[ARM WARN] J1 target 158, feedback=157, raw=1186
+[ARM] command J1 -> 158 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 157 -> 158 (target 158)
+[ARM ACK] J1 reached 158 (target 158)
+[FACE] found x=0.533 y=0.512 score=0.885 roll=0.0
+[FACE] found x=0.532 y=0.513 score=0.877 roll=-0.1
+[FACE] found x=0.533 y=0.513 score=0.872 roll=2.2
+[FACE] found x=0.532 y=0.513 score=0.881 roll=3.7
+[STT] Tell me, how are you?
+YOU: Tell me, how are you?
+[FACE] found x=0.533 y=0.512 score=0.869 roll=2.1
+MILO: I am functioning well, thank you for asking! I'm ready to assist you with whatever you need. What can I help you with right now?
+[FACE] found x=0.534 y=0.506 score=0.877 roll=-3.8
+[ARM] command J1 -> 159 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 158 -> 159 (target 159)
+[ARM ACK] J1 reached 159 (target 159)
+[FACE] found x=0.518 y=0.508 score=0.884 roll=-7.8
+[FACE] found x=0.517 y=0.507 score=0.881 roll=-4.7
+[FACE] found x=0.516 y=0.511 score=0.879 roll=-3.1
+[FACE] found x=0.512 y=0.508 score=0.875 roll=0.2
+[FACE] found x=0.514 y=0.510 score=0.879 roll=-4.6
+[FACE] found x=0.516 y=0.510 score=0.881 roll=-7.8
+[FACE] found x=0.510 y=0.511 score=0.879 roll=2.2
+[FACE] found x=0.512 y=0.510 score=0.881 roll=2.4
+[FACE] found x=0.515 y=0.511 score=0.876 roll=-9.4
+[FACE] found x=0.515 y=0.511 score=0.881 roll=-5.7
+[FACE] found x=0.515 y=0.511 score=0.879 roll=-4.0
+[FACE] found x=0.510 y=0.511 score=0.885 roll=1.7
+[FACE] found x=0.510 y=0.511 score=0.885 roll=2.2
+[FACE] found x=0.516 y=0.511 score=0.881 roll=-4.9
+[FACE] found x=0.489 y=0.482 score=0.895 roll=-3.2
+[ARM] command J1 -> 158 (250 ms)
+[FACE] found x=0.478 y=0.481 score=0.900 roll=-6.6
+[ARM ACK] J1 moving 159 -> 158 (target 158)
+[ARM ACK] J1 reached 158 (target 158)
+[FACE] found x=0.480 y=0.487 score=0.904 roll=-5.4
+[FACE] found x=0.481 y=0.486 score=0.909 roll=-0.7
+[FACE] found x=0.485 y=0.486 score=0.920 roll=-0.3
+[FACE] found x=0.508 y=0.499 score=0.902 roll=-5.9
+[FACE] found x=0.498 y=0.482 score=0.915 roll=-8.6
+[FACE] found x=0.486 y=0.482 score=0.918 roll=-2.2
+[FACE] found x=0.485 y=0.478 score=0.912 roll=-1.7
+[FACE] found x=0.486 y=0.483 score=0.910 roll=-6.2
+[FACE] found x=0.486 y=0.483 score=0.914 roll=-2.6
+[FACE] found x=0.487 y=0.481 score=0.909 roll=-3.0
+[ARM] command J1 -> 157 (250 ms)
+[FACE] found x=0.420 y=0.463 score=0.933 roll=-3.5
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 158 -> 157 (target 157)
+[ARM ACK] J1 reached 157 (target 157)
+[ARM] command J1 -> 148 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.183 y=0.431 score=0.921 roll=-9.0
+[ARM ACK] J1 moving 157 -> 148 (target 148)
+[ARM ACK] J1 reached 148 (target 148)
+[ARM] command J1 -> 140 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.327 y=0.443 score=0.917 roll=-7.1
+[ARM ACK] J1 moving 148 -> 140 (target 140)
+[ARM ACK] J1 reached 140 (target 140)
+[ARM] command J1 -> 137 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 140 -> 137 (target 137)
+[ARM ACK] J1 reached 137 (target 137)
+[FACE] found x=0.496 y=0.384 score=0.923 roll=-5.2
+[ARM] command J3 -> 109 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 105 -> 108 (target 109)
+[ARM ACK] J3 reached 108 (target 109)
+[ARM] command J1 -> 138 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.541 y=0.350 score=0.903 roll=-6.1
+[ARM ACK] J1 moving 137 -> 138 (target 138)
+[ARM ACK] J1 reached 138 (target 138)
+[ARM] command J1 -> 139 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.537 y=0.358 score=0.912 roll=-4.5
+[ARM ACK] J1 moving 138 -> 139 (target 139)
+[ARM ACK] J1 reached 139 (target 139)
+[ARM] command J3 -> 114 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 108 -> 111 (target 114)
+[ARM ACK] J3 reached 113 (target 114)
+[ARM] command J3 -> 116 (250 ms)
+[MOTION READY] face following active
+[FACE] found x=0.533 y=0.416 score=0.903 roll=-2.7
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 113 -> 114 (target 116)
+[ARM ACK] J3 reached 115 (target 116)
+[ARM] command J1 -> 140 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.564 y=0.523 score=0.918 roll=-4.1
+[ARM ACK] J1 moving 139 -> 140 (target 140)
+[ARM ACK] J1 reached 140 (target 140)
+[ARM] command J1 -> 142 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.599 y=0.531 score=0.915 roll=0.6
+[FACE] found x=0.766 y=0.531 score=0.881 roll=-4.3
+[ARM WARN] J1 target 142, feedback=140, raw=1393
+[ARM] command J1 -> 149 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 140 -> 149 (target 149)
+[ARM ACK] J1 reached 149 (target 149)
+[FACE] found x=0.735 y=0.579 score=0.856 roll=7.0
+[ARM] command J3 -> 113 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 115 -> 113 (target 113)
+[ARM ACK] J3 reached 113 (target 113)
+[ARM] command J1 -> 157 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.708 y=0.530 score=0.874 roll=12.3
+[ARM ACK] J1 moving 149 -> 157 (target 157)
+[ARM ACK] J1 reached 157 (target 157)
+[ARM] command J3 -> 112 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.611 y=0.532 score=0.843 roll=9.1
+[ARM ACK] J3 moving 113 -> 112 (target 112)
+[ARM ACK] J3 reached 112 (target 112)
+[ARM] command J1 -> 161 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 157 -> 161 (target 161)
+[ARM ACK] J1 reached 161 (target 161)
+[ARM] command J1 -> 163 (250 ms)
+[MOTION READY] face following active
+[FACE] found x=0.561 y=0.528 score=0.823 roll=-6.4
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.547 y=0.532 score=0.843 roll=9.1
+[ARM WARN] J1 target 163, feedback=161, raw=1138
+[ARM] command J1 -> 162 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.550 y=0.525 score=0.852 roll=2.2
+[FACE] found x=0.536 y=0.530 score=0.868 roll=4.4
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM WARN] J1 target 162, feedback=161, raw=1127
+[ARM] command J1 -> 163 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.581 y=0.595 score=0.833 roll=33.2
+[ARM ACK] J1 moving 161 -> 162 (target 163)
+[ARM ACK] J1 reached 162 (target 163)
+[ARM] command J3 -> 109 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 112 -> 111 (target 109)
+[ARM ACK] J3 reached 109 (target 109)
+[FACE] found x=0.518 y=0.589 score=0.827 roll=14.1
+[ARM] command J3 -> 106 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 109 -> 107 (target 106)
+[ARM ACK] J3 reached 107 (target 106)
+[ARM] command J3 -> 105 (250 ms)
+[MOTION READY] face following active
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J3 moving 107 -> 106 (target 105)
+[ARM ACK] J3 reached 106 (target 105)
+[FACE] found x=0.500 y=0.523 score=0.850 roll=10.8
+[FACE] found x=0.496 y=0.528 score=0.833 roll=20.8
+[FACE] found x=0.493 y=0.528 score=0.837 roll=19.5
+[FACE] found x=0.495 y=0.527 score=0.842 roll=23.9
+[FACE] found x=0.492 y=0.520 score=0.796 roll=33.6
+[ARM] command J1 -> 161 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] no face
+[ARM ACK] J1 moving 162 -> 161 (target 161)
+[ARM ACK] J1 reached 161 (target 161)
+[FACE] found x=0.517 y=0.517 score=0.713 roll=5.7
+[FACE] found x=0.520 y=0.512 score=0.779 roll=-3.3
+[ARM] command J3 -> 104 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.463 y=0.571 score=0.695 roll=5.9
+[ARM ACK] J3 moving 105 -> 104 (target 104)
+[ARM ACK] J3 reached 104 (target 104)
+[ARM] command J3 -> 105 (250 ms)
+[FACE] found x=0.504 y=0.499 score=0.729 roll=-10.8
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.503 y=0.498 score=0.683 roll=-9.7
+[ARM WARN] J3 target 105, feedback=104, raw=1830
+[ARM] command J3 -> 102 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.472 y=0.582 score=0.704 roll=4.2
+[ARM ACK] J3 moving 104 -> 102 (target 102)
+[ARM ACK] J3 reached 102 (target 102)
+[ARM] command J3 -> 103 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.488 y=0.487 score=0.779 roll=6.7
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] no face
+[ARM WARN] J3 target 103, feedback=102, raw=1852
+[FACE] no face
+[FACE] found x=0.502 y=0.559 score=0.669 roll=19.5
+[ARM] command J3 -> 100 (250 ms)
+[MOTION READY] face following active
+[ARM ACK] J3 moving 102 -> 100 (target 100)
+[ARM ACK] J3 reached 100 (target 100)
+[FACE] found x=0.490 y=0.515 score=0.831 roll=18.0
+[FACE] found x=0.476 y=0.511 score=0.846 roll=14.1
+[FACE] found x=0.473 y=0.501 score=0.768 roll=14.6
+[ARM] command J3 -> 101 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[FACE] found x=0.506 y=0.497 score=0.780 roll=32.4
+[FACE] found x=0.516 y=0.510 score=0.730 roll=8.4
+[ARM WARN] J3 target 101, feedback=100, raw=1880
+[FACE] found x=0.516 y=0.499 score=0.724 roll=13.5
+[FACE] found x=0.516 y=0.503 score=0.716 roll=13.0
+[FACE] found x=0.515 y=0.500 score=0.760 roll=21.0
+[FACE] no face
+[FACE] found x=0.476 y=0.484 score=0.569 roll=-6.5
+[ARM] command J1 -> 160 (250 ms)
+[MOTION BLOCKED] waiting for previous arm motion feedback
+[ARM ACK] J1 moving 161 -> 160 (target 160)
+[ARM ACK] J1 reached 160 (target 160)
+[STT] I'm playing with my phone.
+YOU: I'm playing with my phone.
+MILO: That sounds fun! Are you playing a game or looking at something interesting?

@@ -1,28 +1,32 @@
-# MILO
+# MILO Clean RC13
 
-A local companion for NVIDIA Jetson Orin Nano 8 GB. The camera updates structured state; conservative event rules decide when an interaction is useful. Personal memory belongs to UUID profiles, and the LLM is called for conversation rather than every perception update.
+MILO runs on the existing STM32 firmware. This configuration does not flash the controller.
 
-Run on the Jetson:
+Key behavior:
+- DaBai raw/compressed color fallback remains enabled.
+- Local Gemma text+vision, UM02 USB microphone, UACDemo/PipeWire speaker and cat UI are preserved.
+- Face tracking uses J1 for horizontal pan and J3 for limited vertical movement. J2, J4, and J6 are not autonomous tracking joints.
+- J1 pan has a fixed configurable sign. RC9 logs show that decreasing J1 from 104 to 80 degrees moved the face from x=0.54 toward x=0.90. RC13 increases J1 for a face on the right.
+- J4 currently reports about -31 degrees and remains locked. The installed firmware rejects small negative-angle commands for J4.
+- Eye gaze is mirrored horizontally for the user-facing cat display, with quick easing. The eyes respond to the face before the slower arm follows.
+- Face coordinates reset after detection is lost. A face at the edge of the image can be recentered; only an excessively large face pauses motion.
+- Tracking uses small feedback-confirmed commands; J2 and J6 remain stationary in MILO.
+- Voice replies now give more specific support for sadness and share the user's good news. A generic emotional reply is retried once.
+- Questions such as "Where are my glasses?" inspect the current camera image. Confirmed sightings are saved to a persistent local file and may be recalled later as last seen locations. Unseen items are not guessed.
+- Motion is feedback-gated: MILO sends one absolute command, waits for measured feedback to reach the target (or timeout), then sends the next command. It no longer stacks commands while a servo is still moving.
+- `/arm6_feedback` is the angle source. `/arm6_raw` is also subscribed so abnormal calibration/physical positions can be distinguished from UART corruption.
+- A bad/out-of-range joint is blocked independently; other valid axes can continue.
+- The current raised posture is approximately J2=115, J3=106, J4=-31, J6=27. No startup scan or startup pose commands are sent.
+- J3 is limited to the raised range (100 degrees and above); J2 manual commands cannot lower it past 115 degrees, and J6 manual commands are blocked.
+
+Install once:
 
 ```bash
-cd /home/vlad/Jetson_Friend
-./start.sh
+cd ~/MILO_CLEAN_RC13 && ./install.sh
 ```
 
-`config.env.example` documents the tested settings. Existing installations keep their own `config.env`; model and hardware paths must match the device. `--no-face`, `--no-vision`, `--no-mic`, `--no-identity`, and `--debug` are available. Only one main instance runs at a time.
-
-Conversation works with an unknown person, but personal memory requires an identified profile. “My name is …” starts confirmation and enrollment; matching a display name never grants access to an existing profile. With several people visible, personal context is withheld because speaker identification is not implemented.
-
-Local memory commands include “What do you remember about me?”, “Remember that …”, “Forget that”, “Forget everything about me”, and “Don't remember this”. Profile deletion covers the active database and runtime history; external backups and legacy photo files remain separate.
+Start:
 
 ```bash
-.venv/bin/python -m pytest -q
+cd ~/MILO_CLEAN_RC13 && ./start_milo.sh
 ```
-
-See the [implementation and hardware report](docs/MILO_CORE_REPORT.md) for measurements, the architecture, reproduction commands, migration behavior and remaining limitations. Face recognition thresholds still require calibration; existing unaligned face references need re-enrollment.
-
-## Manipulation foundation
-
-See [the current Jetson audit, safety gates, tests and calibration TODO](docs/MANIPULATION_FOUNDATION.md).
-Run `./start_manipulation_dry_run.sh 30` on the Jetson for a camera-only diagnostic.
-Physical tracking defaults off; grasping remains disabled pending verified geometry.

@@ -1,0 +1,18 @@
+[Unit]
+Description=MILO voice assistant
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/vlad/MILO
+ExecStart=/home/vlad/MILO/start_milo.sh
+ExecStop=/home/vlad/MILO/stop_milo.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
