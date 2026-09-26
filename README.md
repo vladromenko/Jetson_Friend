@@ -1,5 +1,14 @@
 # MILO RC13 for Jetson
 
+> **Archived architecture milestone.** This repository preserves the final
+> single-Jetson MILO RC13 implementation. Active development moved to
+> **[vladromenko/MILO](https://github.com/vladromenko/MILO)**, which separates the
+> Jetson brain from a Raspberry Pi + Hailo body and includes the current demo,
+> installation, benchmarks, tests, firmware snapshot, and phone workflow.
+
+This code remains available as the reproducible second stage in MILO's design
+evolution. Use the current repository for new installations.
+
 This repository is the single canonical MILO folder on the Jetson:
 
 ```text
