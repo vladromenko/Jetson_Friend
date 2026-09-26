@@ -11,8 +11,8 @@ python3 -m venv --system-site-packages .venv
 
 The suite covers configuration invariants, visual-intent routing, noise-text
 filtering, LLM response parsing, RGB image decoding, gaze transforms, startup
-stepping, face tracking, joystick shaping, and arm command safety. GitHub Actions
-runs it without ROS hardware and cannot move the arm.
+stepping, face tracking, and arm command safety. GitHub Actions runs it without
+ROS hardware and cannot move the arm.
 
 ## Installation Check
 

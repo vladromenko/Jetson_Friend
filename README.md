@@ -90,7 +90,7 @@ All peripherals connect directly to Jetson in this stage. See
 ```bash
 git clone https://github.com/vladromenko/Jetson_Friend.git ~/Jetson_Friend
 cd ~/Jetson_Friend
-git checkout jetson-only-v1.0.0
+git checkout jetson-only-v1.0.1
 ./install.sh
 ```
 
@@ -128,8 +128,8 @@ python3 -m venv --system-site-packages .venv
 ```
 
 Tests cover configuration invariants, intent routing, audio filtering, LLM
-response parsing, camera decoding, gaze, startup stepping, tracking, manual
-control, and arm safety. CI never opens hardware or sends motion commands.
+response parsing, camera decoding, gaze, startup stepping, face tracking, and
+arm safety. CI never opens hardware or sends motion commands.
 
 ## Repository Map
 
@@ -159,7 +159,6 @@ object memory are intentionally excluded from Git.
 - [Project evolution](docs/EVOLUTION.md)
 - [Runtime layout](docs/RUNTIME_LAYOUT.md)
 - [Restore checklist](docs/RESTORE_CHECKLIST.md)
-- [Original distributed-architecture proposal](docs/DISTRIBUTED_ARCHITECTURE_PROPOSAL.md)
 
 ## Safety and Privacy
 
@@ -168,21 +167,12 @@ an observer. J6 is never commanded by MILO. Object memory remains local; models
 and runtime data are not committed. Software limits are not a physical safety
 system.
 
-## License
-
-Original project source is released under the Apache License 2.0. Downloaded
-models, ROS packages, camera drivers, and firmware retain their own licenses.
-
 ## Acknowledgements
 
 MILO was developed during the Innovation Workshop at Skoltech. Core software,
-systems integration, and hardware implementation were led by
-[Vladislav Romenko](https://lms.skoltech.ru/groups/1640/users/15816), with project
-contributions from
-[Mohamed Khalid Humaid Al Abri](https://lms.skoltech.ru/groups/1640/users/16063),
-[Syed Ali](https://lms.skoltech.ru/groups/1640/users/14830),
-[Bogdan Permin](https://lms.skoltech.ru/groups/1640/users/15704), and
-[Anastasiia Sukhanovskaia](https://lms.skoltech.ru/groups/1640/users/15821).
+systems integration, and hardware implementation were led by Vladislav Romenko,
+with project contributions from Mohamed Khalid Humaid Al Abri, Syed Ali,
+Bogdan Permin, and Anastasiia Sukhanovskaia.
 
 ---
 
