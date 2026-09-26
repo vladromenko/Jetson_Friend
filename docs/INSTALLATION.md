@@ -15,7 +15,7 @@ does not start MILO, move the arm, or flash the STM32 controller.
 ```bash
 git clone https://github.com/vladromenko/Jetson_Friend.git ~/Jetson_Friend
 cd ~/Jetson_Friend
-git checkout jetson-only-v1.0.0
+git checkout jetson-only-v1.0.2
 ```
 
 ## Review Configuration
@@ -52,6 +52,10 @@ The script:
 7. installs `milo.service` as a disabled user unit;
 8. runs syntax, import, test, and asset checks;
 9. exits with MILO stopped.
+
+The native inference binaries are built with CUDA for the Jetson Orin GPU. The
+installer stops with a clear error if `nvcc` is absent rather than silently
+creating a slower CPU-only installation.
 
 Model downloads are several gigabytes. A checksum mismatch is a hard failure and
 must be investigated rather than bypassed.

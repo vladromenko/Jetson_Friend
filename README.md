@@ -90,12 +90,12 @@ All peripherals connect directly to Jetson in this stage. See
 ```bash
 git clone https://github.com/vladromenko/Jetson_Friend.git ~/Jetson_Friend
 cd ~/Jetson_Friend
-git checkout jetson-only-v1.0.1
+git checkout jetson-only-v1.0.2
 ./install.sh
 ```
 
 The installer creates `.venv`, downloads checksum-verified models, builds pinned
-ROS/native dependencies, installs a disabled user service, and runs the test
+CUDA and ROS dependencies, installs a disabled user service, and runs the test
 suite. It finishes with MILO stopped and does not flash the arm controller.
 
 Full prerequisites and first commissioning: [Installation](docs/INSTALLATION.md).

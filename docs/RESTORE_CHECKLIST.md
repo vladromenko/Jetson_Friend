@@ -9,7 +9,7 @@ Canonical folder:
 Canonical release:
 
 ```text
-jetson-only-v1.0.0
+jetson-only-v1.0.2
 ```
 
 ## Restore on the same Jetson
@@ -18,7 +18,7 @@ jetson-only-v1.0.0
 cd ~
 git clone https://github.com/vladromenko/Jetson_Friend.git Jetson_Friend
 cd Jetson_Friend
-git checkout jetson-only-v1.0.0
+git checkout jetson-only-v1.0.2
 ./install.sh
 ```
 

@@ -27,6 +27,13 @@ def test_every_model_download_has_sha256():
     assert len(hashes) == len(calls)
 
 
+def test_native_inference_uses_jetson_cuda():
+    text = (ROOT / 'scripts/bootstrap_assets.sh').read_text()
+    assert text.count('-DGGML_CUDA=ON') == 2
+    assert 'CMAKE_CUDA_ARCHITECTURES=87' in text
+    assert 'CUDA_COMPILER=/usr/local/cuda/bin/nvcc' in text
+
+
 def test_user_service_targets_canonical_home_checkout():
     text = (ROOT / 'milo.service').read_text()
     assert 'WorkingDirectory=%h/Jetson_Friend' in text

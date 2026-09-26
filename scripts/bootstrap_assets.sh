@@ -9,6 +9,8 @@ need_cmd cmake
 need_cmd make
 need_cmd g++
 need_cmd curl
+CUDA_COMPILER=/usr/local/cuda/bin/nvcc
+[ -x "$CUDA_COMPILER" ] || { echo "[MISSING CMD] $CUDA_COMPILER"; exit 1; }
 LLAMA_COMMIT=335b21fcbda972777e4e9e69decad1f719cafeb3
 WHISPER_COMMIT=307869af285d7f6f689ba100b3515e2d1b3feb05
 checkout_pinned(){
@@ -38,12 +40,16 @@ fetch(){
 }
 if [ ! -x deps/llama.cpp/build/bin/llama-server ]; then
   checkout_pinned https://github.com/ggml-org/llama.cpp deps/llama.cpp "$LLAMA_COMMIT"
-  cmake -S deps/llama.cpp -B deps/llama.cpp/build -DGGML_CUDA=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release
+  cmake -S deps/llama.cpp -B deps/llama.cpp/build -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_COMPILER="$CUDA_COMPILER" -DCMAKE_CUDA_ARCHITECTURES=87 \
+    -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release
   cmake --build deps/llama.cpp/build --target llama-server -j"${MILO_BUILD_JOBS:-2}"
 fi
 if [ ! -x deps/whisper.cpp/build/bin/whisper-cli ]; then
   checkout_pinned https://github.com/ggml-org/whisper.cpp deps/whisper.cpp "$WHISPER_COMMIT"
-  cmake -S deps/whisper.cpp -B deps/whisper.cpp/build -DGGML_CUDA=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release
+  cmake -S deps/whisper.cpp -B deps/whisper.cpp/build -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_COMPILER="$CUDA_COMPILER" -DCMAKE_CUDA_ARCHITECTURES=87 \
+    -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release
   cmake --build deps/whisper.cpp/build --target whisper-cli -j"${MILO_BUILD_JOBS:-2}"
 fi
 fetch "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf/resolve/main/gemma-4-E2B_q4_0-it.gguf" \
