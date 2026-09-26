@@ -6,10 +6,10 @@ Canonical folder:
 /home/vlad/Jetson_Friend
 ```
 
-Canonical baseline branch:
+Canonical release:
 
 ```text
-clean-single-folder-runtime
+jetson-only-v1.0.0
 ```
 
 ## Restore on the same Jetson
@@ -18,7 +18,7 @@ clean-single-folder-runtime
 cd ~
 git clone https://github.com/vladromenko/Jetson_Friend.git Jetson_Friend
 cd Jetson_Friend
-git checkout clean-single-folder-runtime
+git checkout jetson-only-v1.0.0
 ./install.sh
 ```
 

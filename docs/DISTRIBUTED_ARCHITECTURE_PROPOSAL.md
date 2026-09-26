@@ -1,5 +1,9 @@
 # MILO runtime architecture and distributed proposal
 
+> Historical design document. The proposal described here was subsequently
+> implemented and extended in [the distributed MILO repository](https://github.com/vladromenko/MILO).
+> The verified Jetson-only baseline remains accurate for this repository.
+
 Date: 2026-09-21
 
 This document describes the verified Jetson baseline before any Raspberry Pi + Hailo work. The distributed design is a proposal only; the RC13 behavior remains unchanged.
@@ -69,7 +73,7 @@ Milo.start()
 | `milo/tracking.py` | Face error to safe J1/J3 tracking intent | Face observations and joint state |
 | `milo/vision.py` | YuNet face detection and image encoding | OpenCV, optional TensorRT engine |
 | `milo/audio.py` | VAD, Whisper STT, Piper TTS, device selection | sounddevice, scipy, binaries |
-| `milo/llm.py` | Local OpenAI-compatible text/VLM client | llama-server HTTP API |
+| `milo/llm.py` | Local text/VLM client | llama-server HTTP API |
 | `milo/memory.py` | Persistent last-seen object locations | Local JSON data |
 | `milo/intents.py` | Visual and object-location intent routing | Pure Python |
 | `milo/gaze.py` | Camera coordinates to cat-eye coordinates | Pure Python |

@@ -49,7 +49,7 @@ class ConfigTests(unittest.TestCase):
     def test_startup_scan_is_removed(self):
         root = Path(__file__).resolve().parents[1]
         main_text = (root / "milo" / "main.py").read_text()
-        env_text = (root / "config.env").read_text()
+        env_text = (root / "config.env.example").read_text()
         self.assertNotIn("_scan_environment", main_text)
         self.assertNotIn("ARM_STARTUP_POSE=", env_text)
         self.assertNotIn("ENVIRONMENT_SCAN=", env_text)
@@ -58,7 +58,7 @@ class ConfigTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         settings = dict(
             line.split("=", 1)
-            for line in (root / "config.env").read_text().splitlines()
+            for line in (root / "config.env.example").read_text().splitlines()
             if line and not line.startswith("#") and "=" in line
         )
         for joint, bounds in {1: (89, 179), 3: (75, 135), 4: (-30, 115), 5: (70, 110)}.items():
@@ -71,5 +71,5 @@ if __name__ == '__main__': unittest.main()
 
 def test_raw_topic_present():
     from pathlib import Path
-    text = (Path(__file__).resolve().parents[1] / "config.env").read_text()
+    text = (Path(__file__).resolve().parents[1] / "config.env.example").read_text()
     assert "ARM_RAW_TOPIC=/arm6_raw" in text

@@ -1,86 +1,190 @@
-# MILO RC13 for Jetson
+# MILO Stage 2: Jetson-Only Companion
 
-> **Archived architecture milestone.** This repository preserves the final
-> single-Jetson MILO RC13 implementation. Active development moved to
-> **[vladromenko/MILO](https://github.com/vladromenko/MILO)**, which separates the
-> Jetson brain from a Raspberry Pi + Hailo body and includes the current demo,
-> installation, benchmarks, tests, firmware snapshot, and phone workflow.
+![MILO Jetson-only hardware](media/milo-jetson-stage.jpg)
 
-This code remains available as the reproducible second stage in MILO's design
-evolution. Use the current repository for new installations.
+[![Tests](https://github.com/vladromenko/Jetson_Friend/actions/workflows/tests.yml/badge.svg)](https://github.com/vladromenko/Jetson_Friend/actions/workflows/tests.yml)
+[![Stage](https://img.shields.io/badge/MILO-evolution%20stage%202-24766c)](docs/EVOLUTION.md)
 
-This repository is the single canonical MILO folder on the Jetson:
+This repository preserves the final **single-computer MILO RC13** architecture.
+An NVIDIA Jetson Orin Nano owns every part of the robot: local dialogue and
+vision models, speech input/output, RGB-D camera, animated face, memory, ROS 2,
+and feedback-gated arm tracking.
 
-```text
-/home/vlad/Jetson_Friend
+It is a complete runnable system, not abandoned code. It is also the second
+documented stage of the project:
+
+1. [`pi_friend_hat-2`](https://github.com/vladromenko/pi_friend_hat-2): offline
+   voice-assistant prototype on Raspberry Pi and Hailo.
+2. **Jetson Friend (this repository):** the first complete embodied MILO on one
+   Jetson.
+3. [`MILO`](https://github.com/vladromenko/MILO): the current distributed Jetson
+   brain + Raspberry Pi/Hailo body platform.
+
+Use this repository when the robot must run from **Jetson alone**. Use the main
+MILO repository for the current two-computer installation.
+
+> **Status:** reproducible architecture milestone and optional fallback runtime.
+> The accepted RC13 behavior is retained. This is a research prototype, not a
+> safety-certified robot controller.
+
+## Stage 2 Demo
+
+These recordings show the Jetson-only system in its original Stage 2 enclosure,
+with the portrait face display, arm-mounted RGB-D camera, speakers, and animated
+gaze:
+
+- [Full movement sequence (1:29, MP4)](media/milo-stage2-demo-01.mp4)
+- [Animated face and enclosure (0:27, MP4)](media/milo-stage2-demo-02.mp4)
+
+The repository copies retain the complete recordings and are encoded as
+browser-compatible H.264. Personal phone and location metadata has been removed.
+
+## Capabilities
+
+- Local Gemma multimodal conversation through llama.cpp
+- Local Whisper speech recognition and Piper speech synthesis
+- Orbbec DaBai RGB-D acquisition through ROS 2
+- YuNet face detection with ONNX/Haar fallback
+- Feedback-gated J1/J3 face tracking and a bounded startup posture
+- Animated cat face with gaze aligned to camera coordinates
+- Local visual questions and last-seen object-location memory
+- Proactive, LLM-generated social prompts
+- One-folder installation, manual lifecycle, diagnostics, and restore checks
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Mic[USB microphone] --> Audio[VoiceIO + VAD]
+    Audio --> Whisper[whisper.cpp]
+    Whisper --> Main[milo.main]
+    Main --> Gemma[llama.cpp + Gemma]
+    Main --> Piper[Piper TTS]
+    Piper --> Speaker[USB speaker]
+    DaBai[Orbbec DaBai] --> ROS[ROS 2 Jazzy]
+    ROS --> Vision[YuNet / VLM]
+    Vision --> Main
+    Main --> Safety[ArmSafetyGate]
+    Safety --> Agent[micro-ROS agent]
+    Agent --> MCU[STM32 controller]
+    MCU --> Arm[J1-J6 feedback / bounded commands]
+    Main --> Display[pygame face and gaze]
 ```
 
-The application code matches the verified RC13 package byte-for-byte. It keeps the Friday demo behavior: local Gemma text and vision, Whisper speech recognition, Piper speech, the cat display, DaBai RGB-D vision, object-location memory, emotional response handling, and feedback-gated face tracking with the robot arm.
+See [Architecture](docs/ARCHITECTURE.md) for startup and request flows.
 
-## Important behavior
+## Validated Hardware
 
-- MILO never starts as part of installation.
-- The user service is disabled by default. A reboot does not start MILO.
-- J2 and J6 are not autonomous tracking joints.
-- Arm movement waits for measured feedback before another command is sent.
-- The display rotation is applied from `MILO_DISPLAY_ROTATION` when MILO is started.
-- The STM32 firmware is not flashed by these scripts.
+- NVIDIA Jetson Orin Nano, 8 GB
+- Ubuntu 24.04, CUDA-capable Jetson stack, ROS 2 Jazzy
+- Orbbec DaBai RGB-D camera
+- Yahboom M3Pro six-axis arm, STM32 controller, CP2104 serial bridge
+- UM02 USB microphone and UACDemo USB speaker
+- Portrait HDMI/DisplayPort screen
 
-## Install from a fresh clone
+All peripherals connect directly to Jetson in this stage. See
+[Hardware](docs/HARDWARE.md) for ports, ownership, and constraints.
 
-Prerequisite: Jetson Ubuntu with ROS 2 Jazzy installed at `/opt/ros/jazzy`.
+## Install
 
 ```bash
 git clone https://github.com/vladromenko/Jetson_Friend.git ~/Jetson_Friend
 cd ~/Jetson_Friend
-git checkout clean-single-folder-runtime
+git checkout jetson-only-v1.0.0
 ./install.sh
 ```
 
-The installer creates the Python environment, downloads/builds the pinned ROS camera and arm dependencies in `ros_ws`, builds local model executables, downloads model files, and runs the test suite. It finishes with MILO stopped.
+The installer creates `.venv`, downloads checksum-verified models, builds pinned
+ROS/native dependencies, installs a disabled user service, and runs the test
+suite. It finishes with MILO stopped and does not flash the arm controller.
 
-## Start and stop manually
+Full prerequisites and first commissioning: [Installation](docs/INSTALLATION.md).
 
-Start:
+## Run
 
 ```bash
 cd ~/Jetson_Friend
-./start_milo.sh
+./install.sh --check   # read-only software/dependency verification
+./diagnose.sh          # device and ROS report; does not send motion
+./start_milo.sh        # attached foreground run
 ```
 
-Stop from another terminal:
+Stop with `Ctrl+C`, or from another terminal:
 
 ```bash
 cd ~/Jetson_Friend
 ./stop_milo.sh
 ```
 
-The start command stays attached to the terminal and shows the live log. `Ctrl+C` also stops every child process started by the launcher.
+MILO does not start at boot. The optional `milo.service` remains disabled after
+installation. Read [Operation](docs/OPERATION.md) before the first powered test.
 
-## Verify without starting MILO
+## Tests
 
 ```bash
-cd ~/Jetson_Friend
-./install.sh --check
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+.venv/bin/python -m pytest -q -p no:cacheprovider
 ```
 
-This checks Python imports, all unit tests, model files, executables, and the generated ROS workspace. It does not open the camera, move the arm, start the model server, or launch MILO.
+Tests cover configuration invariants, intent routing, audio filtering, LLM
+response parsing, camera decoding, gaze, startup stepping, tracking, manual
+control, and arm safety. CI never opens hardware or sends motion commands.
 
-## Repository layout
+## Repository Map
 
 ```text
-milo/                 RC13 Python runtime
-ros_ws/               one camera + micro-ROS + arm workspace
-scripts/              reproducible dependency and display helpers
-models/               downloaded local models (generated, ignored by Git)
-deps/                 llama.cpp and whisper.cpp builds (generated, ignored)
-.venv/                Python environment (generated, ignored)
-tests/                behavior and safety tests
-docs/                 architecture, restore and migration documents
-start_milo.sh         the only normal start command
-stop_milo.sh          clean stop command
-install.sh            install or read-only verification
-config.env            local machine settings (generated, ignored)
+milo/                  Jetson-only application runtime
+ros_ws/                pinned ROS dependencies and custom arm messages
+scripts/               system, ROS, model, and display setup
+tests/                 hardware-free regression suite
+docs/                  architecture, installation, operation, and evolution
+media/                 Stage 2 hardware image and demonstration recordings
+config.env.example     reviewed hardware/runtime configuration
+install.sh             install or verify without starting MILO
+start_milo.sh          supervised foreground launcher
+stop_milo.sh           clean shutdown helper
 ```
 
-See `docs/RUNTIME_LAYOUT.md` for operational details and `docs/DISTRIBUTED_ARCHITECTURE_PROPOSAL.md` before beginning the Raspberry Pi + Hailo split.
+Models, build products, virtual environments, logs, local configuration, and
+object memory are intentionally excluded from Git.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Hardware](docs/HARDWARE.md)
+- [Installation](docs/INSTALLATION.md)
+- [Operation and troubleshooting](docs/OPERATION.md)
+- [Testing](docs/TESTING.md)
+- [Project evolution](docs/EVOLUTION.md)
+- [Runtime layout](docs/RUNTIME_LAYOUT.md)
+- [Restore checklist](docs/RESTORE_CHECKLIST.md)
+- [Original distributed-architecture proposal](docs/DISTRIBUTED_ARCHITECTURE_PROPOSAL.md)
+
+## Safety and Privacy
+
+Keep access to the arm power cutoff, clear its path, and commission movement with
+an observer. J6 is never commanded by MILO. Object memory remains local; models
+and runtime data are not committed. Software limits are not a physical safety
+system.
+
+## License
+
+Original project source is released under the Apache License 2.0. Downloaded
+models, ROS packages, camera drivers, and firmware retain their own licenses.
+
+## Acknowledgements
+
+MILO was developed during the Innovation Workshop at Skoltech. Core software,
+systems integration, and hardware implementation were led by
+[Vladislav Romenko](https://lms.skoltech.ru/groups/1640/users/15816), with project
+contributions from
+[Mohamed Khalid Humaid Al Abri](https://lms.skoltech.ru/groups/1640/users/16063),
+[Syed Ali](https://lms.skoltech.ru/groups/1640/users/14830),
+[Bogdan Permin](https://lms.skoltech.ru/groups/1640/users/15704), and
+[Anastasiia Sukhanovskaia](https://lms.skoltech.ru/groups/1640/users/15821).
+
+---
+
+Stage 2 records the point where MILO first became a complete embodied companion
+on one Jetson before its responsibilities were distributed across two computers.

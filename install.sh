@@ -15,26 +15,32 @@ if [ ! -f /opt/ros/jazzy/setup.bash ]; then
   exit 1
 fi
 
-if [ ! -f config.env ]; then
+CONFIG_FILE="$ROOT/config.env"
+if [ ! -f "$CONFIG_FILE" ] && [ "$MODE" = install ]; then
   cp config.env.example config.env
   echo "[READY] created config.env from the checked-in example"
+elif [ ! -f "$CONFIG_FILE" ]; then
+  CONFIG_FILE="$ROOT/config.env.example"
+  echo "[INFO] config.env is absent; checking the canonical example"
 fi
 
-chmod +x start_milo.sh stop_milo.sh diagnose.sh scripts/*.sh
-
 if [ "$MODE" = install ]; then
+  chmod +x start_milo.sh stop_milo.sh diagnose.sh scripts/*.sh
   ./scripts/bootstrap_system.sh
   if [ ! -x .venv/bin/python ]; then
     python3 -m venv --system-site-packages .venv
   fi
   .venv/bin/python -m pip install --upgrade pip
-  .venv/bin/python -m pip install -r requirements.txt
+  .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
   ./scripts/bootstrap_ros.sh
   ./scripts/bootstrap_assets.sh
+  install -Dm644 milo.service "$HOME/.config/systemd/user/milo.service"
+  systemctl --user daemon-reload
+  systemctl --user disable milo.service >/dev/null 2>&1 || true
 fi
 
 set -a
-source config.env
+source "$CONFIG_FILE"
 set +a
 
 set +u
@@ -45,7 +51,13 @@ set -u
 PYTHON="${APP_PYTHON:-$ROOT/.venv/bin/python}"
 [ -x "$PYTHON" ] || { echo "[BLOCKED] Python environment is missing; run ./install.sh"; exit 1; }
 
-"$PYTHON" -m py_compile milo/*.py
+PYTHONDONTWRITEBYTECODE=1 "$PYTHON" - <<'PY'
+import ast
+from pathlib import Path
+for path in Path('milo').glob('*.py'):
+    ast.parse(path.read_text(), filename=str(path))
+print('[READY] Python syntax')
+PY
 "$PYTHON" - <<'PY'
 required = ('numpy', 'sounddevice', 'scipy', 'cv2', 'pygame', 'rclpy')
 missing = []
@@ -59,7 +71,7 @@ if missing:
 print('[READY] Python audio/vision/UI/ROS dependencies')
 PY
 
-python3 -m unittest discover -s tests -v
+PYTHONDONTWRITEBYTECODE=1 "$PYTHON" -m pytest -q -p no:cacheprovider
 
 missing=0
 for file in \

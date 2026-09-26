@@ -72,7 +72,8 @@ cd ~/Jetson_Friend
 ./stop_milo.sh
 ```
 
-The systemd unit remains available for diagnostics, but it is disabled. The supported normal workflow is the manual start command above.
+The installer places the systemd unit in the user unit directory but leaves it
+disabled. The supported normal workflow is the manual start command above.
 
 ## Display
 
